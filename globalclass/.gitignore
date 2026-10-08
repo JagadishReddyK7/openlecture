@@ -7,12 +7,11 @@ node_modules/
 .pnp.js
 
 # Environment variables — never commit these
-# .env
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-.env.example
 # Build output
 frontend/build/
 frontend/.cache/
