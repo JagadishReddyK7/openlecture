@@ -1,0 +1,30 @@
+@startuml C3_StreamingEngine
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Component Diagram for Streaming Engine Service
+
+Container(gateway, "API Gateway", "Nginx", "Entry point for all traffic.")
+ContainerDb(postgres, "Database", "PostgreSQL 15", "Stores user and course data.")
+System_Ext(livekit, "LiveKit Cloud", "External WebRTC media server.")
+
+Container_Boundary(streaming_engine_boundary, "Streaming Engine Service") {
+    Component(stream_controller, "Stream Controller", "Express Router", "Handles requests for starting, joining, and ending live streams.")
+    Component(auth_middleware, "Auth Middleware", "Express Middleware", "Validates JWT tokens from the Core API.")
+    Component(egress_service, "Egress Service", "Node.js Service", "Manages the lifecycle of LiveKit HLS Egress jobs.")
+    Component(db_proxy, "Database Proxy", "pg pool", "Provides connection pooling and executes PostgreSQL queries.")
+    Component(livekit_sdk, "LiveKit Server SDK", "External Library", "Handles token signing and communication with LiveKit APIs.")
+}
+
+Rel(gateway, stream_controller, "Makes API calls to /api/stream/*", "HTTP")
+
+Rel(stream_controller, auth_middleware, "Authenticates requests using")
+Rel(stream_controller, db_proxy, "Verifies enrollment and lecture status via")
+Rel(stream_controller, egress_service, "Starts/Stops HLS Egress via")
+Rel(stream_controller, livekit_sdk, "Generates access tokens using")
+
+Rel(egress_service, livekit_sdk, "Requests RoomCompositeEgress via")
+Rel(db_proxy, postgres, "Queries", "PostgreSQL Protocol")
+
+Rel(livekit_sdk, livekit, "Interacts with", "HTTPS/gRPC")
+
+@enduml

@@ -1,0 +1,40 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Container Diagram for GlobalClass
+
+Person(student, "Student", "A student who attends lectures and asks questions.")
+Person(instructor, "Instructor", "An instructor who creates and delivers live lectures.")
+
+System_Boundary(globalclass_system, "GlobalClass Platform") {
+    Container(frontend, "Web Application", "React, React Router, LiveKit SDK", "Provides the user interface for all platform features.")
+    Container(gateway, "API Gateway / Load Balancer", "Nginx", "Entry point for all traffic. Performs 'least_conn' load balancing across multiple Core API and Streaming Engine instances.")
+    
+    Container(core_api, "Core API Service [xN]", "Node.js, Express, WebSocket (ws)", "Distributed service instances handling Auth, Course Catalog, and Real-time Q&A. Syncs state via Redis.")
+    Container(streaming_engine, "Streaming Engine [xN]", "Node.js", "Stateless service instances responsible for LiveKit token generation and HLS egress management.")
+    
+    ContainerDb(postgres, "Database", "PostgreSQL 15", "Stores persistent data including users, courses, lectures, and Q&A history.")
+    ContainerDb(redis, "Message Bus & Sync", "Redis 7", "Handles real-time Q&A state synchronization across distributed core-api instances using Pub/Sub.")
+    ContainerDb(minio, "Storage (Local CDN)", "MinIO", "Local S3-compatible storage acting as the origin for HLS video segments.")
+}
+
+System_Ext(livekit, "LiveKit Cloud", "External WebRTC infrastructure for low-latency media routing.")
+
+Rel(student, frontend, "Uses", "HTTPS")
+Rel(instructor, frontend, "Uses", "HTTPS")
+
+Rel(frontend, gateway, "API calls and WebSocket connections", "HTTPS/WSS, Port 80")
+
+Rel(gateway, core_api, "Routes /api/* and /qaws requests to", "HTTP/WS, Port 4000")
+Rel(gateway, streaming_engine, "Routes /api/stream/* requests to", "HTTP, Port 4001")
+Rel(gateway, minio, "Proxies /hls/* requests for video segments", "HTTP, Port 9000")
+
+Rel(core_api, postgres, "Reads from and writes to", "PostgreSQL Protocol, Port 5432")
+Rel(core_api, redis, "Publishes events and subscribes to channels for Q&A sync", "Redis Protocol, Port 6379")
+
+Rel(streaming_engine, postgres, "Validates student enrollment", "PostgreSQL Protocol, Port 5432")
+Rel(streaming_engine, livekit, "Generates signed JWTs and triggers egress", "HTTPS")
+
+Rel(instructor, livekit, "Publishes WebRTC video stream", "WebRTC")
+Rel(student, livekit, "Consumes WebRTC/HLS video stream", "WebRTC/HLS")
+@enduml

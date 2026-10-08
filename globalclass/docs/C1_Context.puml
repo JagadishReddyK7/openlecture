@@ -1,0 +1,22 @@
+@startuml C1_Context
+!include https://raw.githubusercontent.com/plantuml-office/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram for GlobalClass
+
+Person(student, "Student", "A student who attends lectures, asks questions, and participates in Q&A.")
+Person(instructor, "Instructor", "An instructor who creates and delivers live lectures.")
+
+System(globalClass, "GlobalClass Platform", "allows instructors to stream lectures and students to participate in real-time.")
+System_Ext(livekit, "LiveKit Cloud", "External WebRTC/HLS media server for high-performance video routing.")
+
+Rel(student, globalClass, "Enrolls in courses, joins live lectures, asks/votes on questions", "HTTPS/WSS")
+Rel(instructor, globalClass, "Manages courses, starts/ends live streams, answers questions", "HTTPS/WSS")
+
+Rel_R(globalClass, livekit, "Generates access tokens and manages egress", "HTTPS")
+
+Rel(instructor, livekit, "Publishes WebRTC video stream", "WebRTC")
+Rel(student, livekit, "Consumes WebRTC/HLS video stream", "WebRTC/HLS")
+
+@enduml
