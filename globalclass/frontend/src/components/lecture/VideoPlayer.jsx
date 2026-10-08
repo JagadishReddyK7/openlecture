@@ -93,6 +93,20 @@ export default function VideoPlayer({ lectureId, token: _authToken }) {
   const [fallbackHlsUrl, setFallbackHlsUrl] = useState(null);
   const pollRef    = useRef(null);
   const isMounted  = useRef(true);
+  const holdsSlot  = useRef(false); // true while this viewer owns a WebRTC slot
+
+  // Give the WebRTC slot back so the next viewer can have it.
+  // keepalive lets the request finish even while the tab is closing.
+  function releaseSlot() {
+    if (!holdsSlot.current) return;
+    holdsSlot.current = false;
+    const token = localStorage.getItem('token');
+    fetch(`/api/stream/leave/${lectureId}`, {
+      method: 'POST',
+      keepalive: true,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).catch(() => {});
+  }
 
   useEffect(() => {
     isMounted.current = true;
@@ -101,6 +115,7 @@ export default function VideoPlayer({ lectureId, token: _authToken }) {
       try {
         const { data } = await api.post(`/stream/join/${lectureId}`);
         if (!isMounted.current) return;
+        holdsSlot.current = data.viewerTier === 'webrtc';
         setSession(data);
         setLectureInfo({ title: data.lectureName, instructor: data.instructorName });
         setStatus('live');
@@ -116,15 +131,20 @@ export default function VideoPlayer({ lectureId, token: _authToken }) {
     }
 
     tryJoin();
+    window.addEventListener('beforeunload', releaseSlot);
     return () => {
       isMounted.current = false;
       clearTimeout(pollRef.current);
+      window.removeEventListener('beforeunload', releaseSlot);
+      releaseSlot();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lectureId]);
 
   // WebRTC disconnect handler — attempt HLS fallback
   async function handleWebRTCDisconnect() {
     if (!isMounted.current) return;
+    releaseSlot(); // moving to HLS, so free the WebRTC slot
     try {
       const { data } = await api.get(`/stream/hls-status/${lectureId}`);
       if (data.hlsUrl) {

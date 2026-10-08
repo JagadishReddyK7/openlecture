@@ -2,10 +2,10 @@
 #
 # Services:
 #   postgres         — Shared database (lecture schema, users, Q&A)
-#   redis            — Q&A write buffer + Pub/Sub broadcast bus
+#   redis            — Q&A write buffer, Pub/Sub broadcast bus, WebRTC slot allocation
 #   minio            — Local S3-compatible storage for HLS segments (CDN origin)
 #   core-api         — Service 1: Auth, Catalog, Scheduling, Q&A WebSocket
-#   streaming-engine — Service 2: LiveKit token generation + HLS egress management
+#   streaming-engine — Service 2: LiveKit tokens, WebRTC/HLS tier allocation (Redis), HLS egress
 #   api-gateway      — Nginx: load balancer + API gateway + HLS segment proxy (port 80)
 #
 # Load balancing:
@@ -109,12 +109,15 @@ services:
       DB_NAME: globalclass
       DB_USER: postgres
       DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_change_in_production}
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       # ADR-001: WebRTC priority tier limit. First N viewers get WebRTC (<1s latency);
       # viewers beyond this threshold get LL-HLS (~2-3s latency) via MinIO/CDN.
+      # Slots are tracked in Redis so the limit holds across scaled instances.
       # Set to 1 to demonstrate tier switching during a demo with 2 users.
       WEBRTC_PRIORITY_LIMIT: ${WEBRTC_PRIORITY_LIMIT:-500}
       MINIO_ENDPOINT: http://minio:9000
@@ -122,6 +125,8 @@ services:
       MINIO_SECRET_KEY: minioadmin
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio:
         condition: service_healthy

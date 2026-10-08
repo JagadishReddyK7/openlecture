@@ -6,17 +6,25 @@
 //   viewerTier = 'webrtc' → student gets a LiveKit token (priority tier, <1s latency)
 //   viewerTier = 'hls'    → student gets an HLS URL     (bulk tier, ~2-3s latency)
 //   Threshold: WEBRTC_PRIORITY_LIMIT env var (default: 500)
+//   Slots are claimed atomically in Redis — see services/tierService.js
 
 import express from 'express';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import pool from '../config/db.js';
 import { startHLSEgress, stopHLSEgress, getHLSUrl } from '../services/egressService.js';
+import {
+  WEBRTC_PRIORITY_LIMIT, assignTier, releaseSlot, clearSlots, slotsInUse,
+} from '../services/tierService.js';
 
 const router = express.Router();
 
-// Priority tier limit from ADR-001 (set WEBRTC_PRIORITY_LIMIT=1 in .env for demo)
-const WEBRTC_PRIORITY_LIMIT = parseInt(process.env.WEBRTC_PRIORITY_LIMIT || '500');
+// One shared LiveKit admin client per instance (used for deleteRoom on /end)
+const roomService = new RoomServiceClient(
+  process.env.LIVEKIT_URL,
+  process.env.LIVEKIT_API_KEY,
+  process.env.LIVEKIT_API_SECRET
+);
 
 // Verify LiveKit config on startup
 if (!process.env.LIVEKIT_URL || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
@@ -44,24 +52,6 @@ async function generateLiveKitToken(identity, name, room, canPublish) {
     canPublishData: true,
   });
   return await at.toJwt();
-}
-
-/**
- * Get current participant count for a LiveKit room.
- * Returns 0 if the room doesn't exist yet (no one connected).
- */
-async function getRoomParticipantCount(lectureId) {
-  try {
-    const roomService = new RoomServiceClient(
-      process.env.LIVEKIT_URL,
-      process.env.LIVEKIT_API_KEY,
-      process.env.LIVEKIT_API_SECRET
-    );
-    const rooms = await roomService.listRooms([lectureId]);
-    return rooms[0]?.numParticipants || 0;
-  } catch {
-    return 0; // Room not created yet — treat as empty
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +113,8 @@ router.post('/start/:lectureId', authenticate, requireRole('instructor'), async 
 // ---------------------------------------------------------------------------
 // POST /api/stream/join/:lectureId
 // Student joins a live session.
-// Returns viewerTier ('webrtc' or 'hls') based on current participant count.
+// Returns viewerTier ('webrtc' or 'hls'). The WebRTC slot is claimed
+// atomically in Redis, so the limit holds even under a burst of joins.
 // Priority tier: LiveKit token. Bulk tier: HLS URL.
 // ---------------------------------------------------------------------------
 router.post('/join/:lectureId', authenticate, async (req, res) => {
@@ -141,12 +132,8 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Lecture is not live', code: 'NOT_LIVE' });
     }
 
-    // Determine viewer tier based on current room occupancy (ADR-001)
-    const participantCount = await getRoomParticipantCount(lectureId);
-    const viewerTier = participantCount < WEBRTC_PRIORITY_LIMIT ? 'webrtc' : 'hls';
-
-    console.log(`[Stream] Student ${req.user.name} joining lecture ${lectureId}`);
-    console.log(`[Stream]   Room occupancy: ${participantCount}, limit: ${WEBRTC_PRIORITY_LIMIT} → tier: ${viewerTier}`);
+    // Claim a WebRTC slot or fall to HLS (ADR-001). No LiveKit API call here.
+    const viewerTier = await assignTier(lectureId, req.user.id);
 
     if (viewerTier === 'hls') {
       // Bulk tier — ensure egress is running on this instance (idempotent) and return HLS URL.
@@ -170,7 +157,8 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
           instructorName: result.rows[0].instructor_name,
         });
       }
-      // HLS unavailable — fall through to WebRTC
+      // HLS unavailable — fall through to WebRTC (over the soft limit, by design:
+      // a degraded stream is better than no stream)
       console.warn('[Stream] HLS unavailable, falling back to WebRTC for bulk-tier viewer');
     }
 
@@ -210,6 +198,29 @@ router.get('/hls-status/:lectureId', authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/stream/leave/:lectureId
+// Student leaves (or drops to HLS). Frees their WebRTC slot for the next viewer.
+// Idempotent: calling it twice, or as an HLS viewer, is harmless.
+// ---------------------------------------------------------------------------
+router.post('/leave/:lectureId', authenticate, async (req, res) => {
+  try {
+    await releaseSlot(req.params.lectureId, req.user.id);
+    res.json({ message: 'Left stream' });
+  } catch (err) {
+    console.error('[Stream] leave error:', err);
+    res.status(500).json({ error: 'Failed to leave stream' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/stream/stats/:lectureId — how many WebRTC slots are in use
+// ---------------------------------------------------------------------------
+router.get('/stats/:lectureId', authenticate, async (req, res) => {
+  const used = await slotsInUse(req.params.lectureId);
+  res.json({ webrtcSlotsUsed: used, webrtcLimit: WEBRTC_PRIORITY_LIMIT });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/stream/end/:lectureId
 // Instructor ends the session.
 // Marks lecture as 'ended' in DB, stops HLS egress, closes the LiveKit room.
@@ -225,13 +236,11 @@ router.post('/end/:lectureId', authenticate, requireRole('instructor'), async (r
     // Stop HLS egress first (cleans up MinIO write stream)
     await stopHLSEgress(lectureId);
 
+    // Release every WebRTC slot for this lecture
+    await clearSlots(lectureId);
+
     // Close the LiveKit room so all participants are disconnected immediately.
     try {
-      const roomService = new RoomServiceClient(
-        process.env.LIVEKIT_URL,
-        process.env.LIVEKIT_API_KEY,
-        process.env.LIVEKIT_API_SECRET
-      );
       await roomService.deleteRoom(lectureId);
       console.log(`[Stream] LiveKit room ${lectureId} deleted`);
     } catch (livekitErr) {
