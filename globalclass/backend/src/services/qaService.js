@@ -9,6 +9,37 @@ import { v4 as uuidv4 } from 'uuid';
 const liveQKey  = (id) => `qa:live:q:${id}`;       // Hash: questionId → JSON
 const liveVKey  = (id) => `qa:live:voted:${id}`;   // Hash: questionId:studentId → "1"
 const liveVCKey = (id) => `qa:live:vc:${id}`;      // Hash: questionId → vote count
+const connKey   = (id) => `qa:conn:${id}`;         // String: WS clients across ALL instances
+const stratKey  = (id) => `qa:strategy:${id}`;     // String: active ranking strategy
+const flushLock = (id) => `qa:flushlock:${id}`;    // String: one flusher per tick
+
+// --- Cluster-wide room state ---
+// With several core-api instances, each one only sees its own sockets. Anything
+// that must be true for the whole lecture (who is connected, which ranking the
+// instructor picked) lives in Redis instead of process memory.
+
+export async function clientJoined(lectureId) {
+  return redis.incr(connKey(lectureId));
+}
+
+export async function clientLeft(lectureId) {
+  return redis.decr(connKey(lectureId));
+}
+
+export async function getStrategy(lectureId) {
+  return (await redis.get(stratKey(lectureId))) || 'default';
+}
+
+export async function setStrategy(lectureId, strategy) {
+  await redis.set(stratKey(lectureId), strategy);
+}
+
+// Returns true if this instance should run the flush for this tick.
+// Without it every instance re-upserts the same rows every 5 seconds.
+export async function tryAcquireFlushLock(lectureId) {
+  const ok = await redis.set(flushLock(lectureId), '1', { NX: true, PX: 4000 });
+  return ok === 'OK';
+}
 
 // --- Read ---
 
@@ -183,14 +214,22 @@ export async function flushToDB(lectureId) {
   }
 }
 
-// Final flush: flush to PostgreSQL then clean up Redis buffer keys
+// Delete the live buffer only if nobody reconnected while we were flushing.
+// Check and delete happen inside one Lua script, so a client that joins
+// (INCR) between the flush and the delete keeps the buffer alive.
+const DELETE_IF_EMPTY = `
+if tonumber(redis.call('GET', KEYS[1]) or '0') > 0 then return 0 end
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5])
+return 1
+`;
+
+// Final flush: called when the LAST client across all instances leaves.
 export async function finalFlushAndClean(lectureId) {
   await flushToDB(lectureId);
-  await Promise.all([
-    redis.del(liveQKey(lectureId)),
-    redis.del(liveVKey(lectureId)),
-    redis.del(liveVCKey(lectureId)),
-  ]);
+  await redis.eval(DELETE_IF_EMPTY, {
+    keys: [connKey(lectureId), liveQKey(lectureId), liveVKey(lectureId),
+           liveVCKey(lectureId), stratKey(lectureId)],
+  });
 }
 
 // No-op kept for API compatibility — strategy change no longer needs cache invalidation
@@ -200,5 +239,6 @@ export function invalidateCache() { /* no-op */ }
 const qaService = {
   getRankedQuestions, submitQuestion, voteQuestion,
   markAnswered, flushToDB, finalFlushAndClean, invalidateCache,
+  clientJoined, clientLeft, getStrategy, setStrategy, tryAcquireFlushLock,
 };
 export default qaService;

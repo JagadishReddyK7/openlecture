@@ -19,8 +19,8 @@ import redis from '../config/redis.js';
 // lectureId -> Set of WebSocket clients (local to this instance only)
 const rooms = new Map();
 
-// lectureId -> active ranking strategy ('default' | 'votes' | 'recency')
-const roomStrategies = new Map();
+// Ranking strategy and the lecture-wide connection count live in Redis
+// (see qaService), not here: this process only knows about its own sockets.
 
 export const qaWss = new WebSocketServer({ noServer: true });
 
@@ -66,10 +66,10 @@ async function maybeUnsubscribe(lectureId) {
 
 // Fetch the current ranked question list and publish it to the Redis channel.
 // Every subscribed Core API instance will receive this and relay to its local clients.
-// Accepts an optional explicitStrategy so SET_STRATEGY broadcasts the new strategy
-// to all instances — they don't share in-memory roomStrategies.
-export async function broadcastQuestions(lectureId, explicitStrategy) {
-  const strategy = explicitStrategy || roomStrategies.get(lectureId) || 'default';
+// The strategy is read from Redis, so a vote landing on any instance ranks
+// questions the way the instructor chose.
+export async function broadcastQuestions(lectureId) {
+  const strategy = await qaService.getStrategy(lectureId);
   const questions = await qaService.getRankedQuestions(lectureId, strategy);
   const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy });
 
@@ -103,12 +103,14 @@ export function initQAWebSocket() {
     ws.lectureId = lectureId;
     console.log(`[WS] Room ${lectureId} now has ${rooms.get(lectureId).size} local clients`);
 
-    // Ensure this instance is subscribed to the Redis broadcast channel for this lecture
+    // Count this client lecture-wide (all instances), then subscribe this
+    // instance to the lecture's broadcast channel
+    await qaService.clientJoined(lectureId);
     await ensureSubscribed(lectureId);
 
     // Push current state immediately so late joiners see existing questions
     try {
-      const strategy = roomStrategies.get(lectureId) || 'default';
+      const strategy = await qaService.getStrategy(lectureId);
       const questions = await qaService.getRankedQuestions(lectureId, strategy);
       ws.send(JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy }));
     } catch (err) {
@@ -150,12 +152,9 @@ export function initQAWebSocket() {
             ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid strategy' }));
             return;
           }
-          // Update local strategy map, then broadcast with the new strategy explicitly.
-          // Other instances receive the payload (which includes the strategy field) and
-          // relay it as-is — they don't need to update their own roomStrategies map
-          // because the strategy is embedded in every broadcast payload.
-          roomStrategies.set(lectureId, msg.strategy);
-          await broadcastQuestions(lectureId, msg.strategy);
+          // Stored in Redis so every instance ranks the same way from now on
+          await qaService.setStrategy(lectureId, msg.strategy);
+          await broadcastQuestions(lectureId);
         }
       } catch (err) {
         console.error('[Q&A WebSocket Message Error]:', err);
@@ -166,19 +165,34 @@ export function initQAWebSocket() {
     ws.on('close', async () => {
       const room = rooms.get(lectureId);
       room?.delete(ws);
+
+      // Last client on THIS instance: stop listening to the channel, nothing more.
       if (room?.size === 0) {
         rooms.delete(lectureId);
-        roomStrategies.delete(lectureId);
-        await qaService.finalFlushAndClean(lectureId);
         await maybeUnsubscribe(lectureId);
+      }
+
+      // Last client on ANY instance: persist and clear the live buffer.
+      // (Previously this ran when one instance's room emptied, wiping the
+      // Redis buffer while students on other instances were still asking.)
+      const remaining = await qaService.clientLeft(lectureId);
+      if (remaining <= 0) {
+        await qaService.finalFlushAndClean(lectureId);
       }
     });
   });
 
-  // Flush all active lecture buffers to PostgreSQL every 5 seconds (NFR2 durability)
+  // Flush all active lecture buffers to PostgreSQL every 5 seconds (NFR2 durability).
+  // A short Redis lock makes sure only one instance flushes a lecture per tick.
   setInterval(async () => {
     for (const [lectureId] of rooms) {
-      await qaService.flushToDB(lectureId);
+      try {
+        if (await qaService.tryAcquireFlushLock(lectureId)) {
+          await qaService.flushToDB(lectureId);
+        }
+      } catch (err) {
+        console.error(`[Q&A Flush] ${lectureId}:`, err.message);
+      }
     }
   }, 5000);
 
