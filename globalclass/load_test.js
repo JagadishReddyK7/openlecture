@@ -16,6 +16,13 @@
 //     -v $(pwd)/load_test.js:/load_test.js \
 //     grafana/k6 run /load_test.js
 //
+// STRESS TEST (ramps to 1000 VUs with little think time, to find the limit):
+//   docker run --rm -i \
+//     --network globalclass_default \
+//     -v $(pwd)/load_test.js:/load_test.js \
+//     grafana/k6 run /load_test.js --env STRESS=true --env STUDENTS=200
+//   Watch where p95 climbs and errors start — that is the capacity number.
+//
 // SMOKE TEST (5 users, 30 seconds):
 //   docker run --rm -i \
 //     --network globalclass_default \
@@ -36,9 +43,17 @@ import { SharedArray } from 'k6/data';
 // NOT "localhost" — that would point to the k6 container itself.
 const BASE_URL = 'http://api-gateway';
 
-const SMOKE = __ENV.SMOKE === 'true';
-// Only need 50 unique student tokens — VUs reuse them via modulo (__VU % 50)
-const NUM_STUDENTS = SMOKE ? 5 : 50;
+const SMOKE  = __ENV.SMOKE === 'true';
+const STRESS = __ENV.STRESS === 'true';
+// Unique student accounts; VUs reuse them via modulo. Each unique student
+// holds at most one WebRTC slot, so set STUDENTS above WEBRTC_PRIORITY_LIMIT
+// to exercise the HLS tier.
+const NUM_STUDENTS = SMOKE ? 5 : parseInt(__ENV.STUDENTS || '50', 10);
+
+// Think time multiplier. The default profile mimics real viewers (polls every
+// 5s, 1-3s between actions), so throughput reflects the script, not the
+// server. STRESS cuts waiting so the server becomes the bottleneck.
+const PACE = STRESS ? 0.1 : 1;
 
 // ---------------------------------------------------------------------------
 // Custom Metrics
@@ -56,9 +71,26 @@ const earlyStopRate = new Rate('early_stop_rate');
 // ---------------------------------------------------------------------------
 // Test Stages — ramp-up → steady → peak → ramp-down
 // ---------------------------------------------------------------------------
+const STRESS_OPTIONS = {
+  setupTimeout: '300s',
+  stages: [
+    { duration: '1m', target: 100 },
+    { duration: '2m', target: 300 },
+    { duration: '2m', target: 600 },
+    { duration: '2m', target: 1000 },
+    { duration: '1m', target: 0 },
+  ],
+  // Report-only thresholds: we want to see where it breaks, not stop early
+  thresholds: {
+    http_req_duration: ['p(95)<500'],
+    http_req_failed: ['rate<0.01'],
+    join_latency: ['p(95)<1000'],
+  },
+};
+
 export const options = SMOKE
   ? { vus: 5, duration: '30s', setupTimeout: '60s' }
-  : {
+  : STRESS ? STRESS_OPTIONS : {
     setupTimeout: '120s',  // Student registration takes time
     stages: [
       { duration: '1m', target: 50 },   // Ramp-up
@@ -313,7 +345,7 @@ export default function (data) {
   }
 
   // Small gap between iterations
-  sleep(Math.random() * 2 + 1); // 1-3 seconds
+  sleep((Math.random() * 2 + 1) * PACE); // 1-3 seconds (scaled in STRESS)
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +437,7 @@ function simulateHLSViewing(data, joinData, headers, isEarlyStopper, isSeeker) {
     if (!segOk) segmentErrors.add(1);
 
     // Simulate playback timing — HLS segments are typically 2-6 seconds
-    sleep(Math.random() * 3 + 2); // 2-5 second playback delay
+    sleep((Math.random() * 3 + 2) * PACE); // 2-5 second playback delay
   }
 }
 
@@ -435,7 +467,7 @@ function simulateWebRTCSession(data, joinData, headers, isEarlyStopper) {
 
     check(res, { 'status poll ok': (r) => r.status === 200 });
 
-    sleep(pollInterval);
+    sleep(pollInterval * PACE);
   }
 }
 
