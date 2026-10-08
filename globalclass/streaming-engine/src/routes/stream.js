@@ -228,10 +228,16 @@ router.get('/stats/:lectureId', authenticate, async (req, res) => {
 router.post('/end/:lectureId', authenticate, requireRole('instructor'), async (req, res) => {
   const { lectureId } = req.params;
   try {
-    await pool.query(
+    const result = await pool.query(
       `UPDATE lectures SET status = 'ended' WHERE id = $1 AND instructor_id = $2`,
       [lectureId, req.user.id]
     );
+
+    // Only the owning instructor may end a lecture. Without this check any
+    // instructor could close another instructor's LiveKit room.
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Lecture not found or not authorized' });
+    }
 
     // Stop HLS egress first (cleans up MinIO write stream)
     await stopHLSEgress(lectureId);
