@@ -16,8 +16,6 @@
 # Fault isolation demo:
 #   docker compose stop streaming-engine  →  Q&A still works
 
-version: '3.8'
-
 services:
 
   # ── Infrastructure ────────────────────────────────────────────

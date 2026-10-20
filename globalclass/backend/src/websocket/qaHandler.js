@@ -64,101 +64,111 @@ async function maybeUnsubscribe(lectureId) {
   console.log(`[WS] Unsubscribed from Redis channel: ${channel}`);
 }
 
+// Build the update a client sees: ranked list + the lecture's sequence number.
+// seq is read BEFORE the data. Every mutation writes its data and only then
+// bumps seq, so a payload tagged seq=N always includes mutations 1..N.
+async function buildUpdate(lectureId) {
+  const seq = await qaService.getSeq(lectureId);
+  const strategy = await qaService.getStrategy(lectureId);
+  const questions = await qaService.getRankedQuestions(lectureId, strategy);
+  return { type: 'QUESTIONS_UPDATE', seq, questions, strategy };
+}
+
 // Fetch the current ranked question list and publish it to the Redis channel.
 // Every subscribed Core API instance will receive this and relay to its local clients.
 // The strategy is read from Redis, so a vote landing on any instance ranks
 // questions the way the instructor chose.
 export async function broadcastQuestions(lectureId) {
-  const strategy = await qaService.getStrategy(lectureId);
-  const questions = await qaService.getRankedQuestions(lectureId, strategy);
-  const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy });
+  const payload = JSON.stringify(await buildUpdate(lectureId));
+  await redis.publish(pubChannel(lectureId), payload);
+}
 
-  const count = await redis.publish(pubChannel(lectureId), payload);
-  console.log(`[WS] Published QUESTIONS_UPDATE to channel ${pubChannel(lectureId)} (${count} subscribers)`);
+// Applies one client message. Returns true if Q&A state changed.
+async function applyMessage(ws, lectureId, msg) {
+  switch (msg.type) {
+    case 'SUBMIT_QUESTION':
+      await qaService.submitQuestion(lectureId, ws.user.id, msg.content);
+      return true;
+
+    case 'VOTE':
+      await qaService.voteQuestion(msg.questionId, ws.user.id, lectureId);
+      return true;
+
+    case 'MARK_ANSWERED':
+      if (ws.user.role !== 'instructor') throw new Error('Only instructors can mark questions answered');
+      await qaService.markAnswered(msg.questionId, lectureId);
+      return true;
+
+    case 'SET_STRATEGY': {
+      if (ws.user.role !== 'instructor') throw new Error('Only instructors can change ranking strategy');
+      const valid = ['default', 'votes', 'recency'];
+      if (!valid.includes(msg.strategy)) throw new Error('Invalid strategy');
+      // Stored in Redis so every instance ranks the same way from now on
+      await qaService.setStrategy(lectureId, msg.strategy);
+      return true;
+    }
+
+    default:
+      return false;
+  }
 }
 
 export function initQAWebSocket() {
-  qaWss.on('connection', async (ws, req) => {
+  qaWss.on('connection', (ws, req) => {
     // Robust query string parsing unaffected by proxy route changes
     const queryString = req.url.split('?')[1] || '';
     const params = new URLSearchParams(queryString);
     const lectureId = params.get('lectureId');
     const token = params.get('token');
 
-    console.log(`[WS] Incoming connection. req.url: ${req.url}`);
-    console.log(`[WS] Parsed lectureId: '${lectureId}'`);
-
     try {
       ws.user = jwt.verify(token, process.env.JWT_SECRET);
-      console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
     } catch (err) {
       console.log('[WS] Unauthorized connection rejected:', err.message);
       ws.close(4001, 'Unauthorized');
       return;
     }
+    console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
 
     // Register this client in the local room map
     if (!rooms.has(lectureId)) rooms.set(lectureId, new Set());
     rooms.get(lectureId).add(ws);
     ws.lectureId = lectureId;
-    console.log(`[WS] Room ${lectureId} now has ${rooms.get(lectureId).size} local clients`);
 
-    // Count this client lecture-wide (all instances), then subscribe this
-    // instance to the lecture's broadcast channel
-    await qaService.clientJoined(lectureId);
-    await ensureSubscribed(lectureId);
+    // Listeners are attached synchronously, before any await. `ws` does not
+    // buffer events, so a message sent right after the socket opens (or an
+    // early close) used to be lost while the setup below was still running.
+    // Handlers wait on `ready` instead.
+    const ready = (async () => {
+      // Count this client lecture-wide (all instances), then subscribe this
+      // instance to the lecture's broadcast channel
+      await qaService.clientJoined(lectureId);
+      await ensureSubscribed(lectureId);
 
-    // Push current state immediately so late joiners see existing questions
-    try {
-      const strategy = await qaService.getStrategy(lectureId);
-      const questions = await qaService.getRankedQuestions(lectureId, strategy);
-      ws.send(JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy }));
-    } catch (err) {
-      ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
-    }
+      // Push current state immediately so late joiners see existing questions
+      try {
+        ws.send(JSON.stringify(await buildUpdate(lectureId)));
+      } catch (err) {
+        ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
+      }
+    })();
 
     ws.on('message', async (raw) => {
+      let msg = {};
       try {
-        const msg = JSON.parse(raw);
-        console.log(`[WS] Received message from ${ws.user.role}:`, msg.type);
+        msg = JSON.parse(raw);
+        await ready;
+        if (!(await applyMessage(ws, lectureId, msg))) return;
 
-        if (msg.type === 'SUBMIT_QUESTION') {
-          console.log(`[WS] Submitting question for lecture ${lectureId}`);
-          await qaService.submitQuestion(lectureId, ws.user.id, msg.content);
-          await broadcastQuestions(lectureId); // publishes to Redis → all instances
-        }
-
-        if (msg.type === 'VOTE') {
-          await qaService.voteQuestion(msg.questionId, ws.user.id, lectureId);
-          await broadcastQuestions(lectureId);
-        }
-
-        if (msg.type === 'MARK_ANSWERED') {
-          if (ws.user.role !== 'instructor') {
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Only instructors can mark questions answered' }));
-            return;
-          }
-          await qaService.markAnswered(msg.questionId, lectureId);
-          await broadcastQuestions(lectureId);
-        }
-
-        if (msg.type === 'SET_STRATEGY') {
-          if (ws.user.role !== 'instructor') {
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Only instructors can change ranking strategy' }));
-            return;
-          }
-          const valid = ['default', 'votes', 'recency'];
-          if (!valid.includes(msg.strategy)) {
-            ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid strategy' }));
-            return;
-          }
-          // Stored in Redis so every instance ranks the same way from now on
-          await qaService.setStrategy(lectureId, msg.strategy);
-          await broadcastQuestions(lectureId);
-        }
+        // Data is written; now bump the lecture's sequence number. The sender
+        // gets it back in an ACK, so it can tell which broadcast is the first
+        // one that includes its own change.
+        const seq = await qaService.bumpSeq(lectureId);
+        ws.send(JSON.stringify({ type: 'ACK', clientMsgId: msg.clientMsgId, seq }));
+        await broadcastQuestions(lectureId); // publishes to Redis → all instances
       } catch (err) {
-        console.error('[Q&A WebSocket Message Error]:', err);
-        ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
+        if (err.message !== 'Already voted') console.error('[Q&A WebSocket Message Error]:', err);
+        ws.send(JSON.stringify({ type: 'ERROR', clientMsgId: msg.clientMsgId, message: err.message }));
       }
     });
 
@@ -171,6 +181,9 @@ export function initQAWebSocket() {
         rooms.delete(lectureId);
         await maybeUnsubscribe(lectureId);
       }
+
+      // The INCR in `ready` must land before this DECR, or the count drifts.
+      await ready.catch(() => {});
 
       // Last client on ANY instance: persist and clear the live buffer.
       // (Previously this ran when one instance's room emptied, wiping the

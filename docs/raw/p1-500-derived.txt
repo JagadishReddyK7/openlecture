@@ -1,0 +1,39 @@
+NOTE: k6 did not finish this run (see p1-500-k6.txt). The client-side lines below read 0 because no summary exists; they are NOT measurements. CPU/socket/Redis lines are server-side and valid up to the failure.
+
+﻿tag=p1-500 clients=500 steady=120s lecture=b3f6b1d1-f6eb-4076-84ea-1e71ead77924
+window 2026-10-20T18:05:02.1880000+00:00 .. 2026-10-20T18:07:02.1880000+00:00
+
+mutations sent (steady)      : 0  (0/s cluster-wide)
+msgs received per client/s   : 0
+updates received per client/s: 0
+bytes received per client/s  : 0
+total bytes received/s       : 0
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 19 mean= 206.1 peak= 322.6
+  globalclass-core-api-3           n= 19 mean=  74.3 peak=  99.9
+  globalclass-core-api-4           n= 19 mean=  79.9 peak= 111.5
+  globalclass-core-api-5           n= 19 mean=  76.4 peak=  94.2
+  globalclass-k6                   n= 19 mean= 670.0 peak= 843.2
+  globalclass-minio-1              n= 19 mean=   2.0 peak=  12.2
+  globalclass-postgres-1           n= 19 mean=   6.3 peak=  16.0
+  globalclass-redis-1              n= 19 mean=   4.7 peak=  10.7
+  globalclass-streaming-engine-3   n= 19 mean=   0.0 peak=   0.8
+  globalclass-streaming-engine-4   n= 19 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 19 mean=   0.0 peak=   0.9
+
+Sockets per core-api instance:
+  core-api-3: 164
+  core-api-4: 165
+  core-api-5: 171
+
+Redis (since RESETSTAT):
+  total_commands_processed:26025
+  total_net_output_bytes:216419962
+  cmdstat_hgetall:calls=6158,usec=57680515,usec_per_call=9366.76,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=2446,usec=3720633,usec_per_call=1521.11,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=2446,usec=1588227,usec_per_call=649.32,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=3050,usec=550498,usec_per_call=180.49,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=2550,usec=86040,usec_per_call=33.74,rejected_calls=0,failed_calls=0

@@ -12,6 +12,7 @@ const liveVCKey = (id) => `qa:live:vc:${id}`;      // Hash: questionId → vote 
 const connKey   = (id) => `qa:conn:${id}`;         // String: WS clients across ALL instances
 const stratKey  = (id) => `qa:strategy:${id}`;     // String: active ranking strategy
 const flushLock = (id) => `qa:flushlock:${id}`;    // String: one flusher per tick
+const seqKey    = (id) => `qa:ver:${id}`;          // String: bumped once per mutation
 
 // --- Cluster-wide room state ---
 // With several core-api instances, each one only sees its own sockets. Anything
@@ -32,6 +33,16 @@ export async function getStrategy(lectureId) {
 
 export async function setStrategy(lectureId, strategy) {
   await redis.set(stratKey(lectureId), strategy);
+}
+
+// Lecture-wide sequence number. Bumped after every mutation's data is written,
+// so a broadcast that read seq=N first is guaranteed to contain mutations 1..N.
+export async function bumpSeq(lectureId) {
+  return redis.incr(seqKey(lectureId));
+}
+
+export async function getSeq(lectureId) {
+  return Number((await redis.get(seqKey(lectureId))) || 0);
 }
 
 // Returns true if this instance should run the flush for this tick.
@@ -219,7 +230,7 @@ export async function flushToDB(lectureId) {
 // (INCR) between the flush and the delete keeps the buffer alive.
 const DELETE_IF_EMPTY = `
 if tonumber(redis.call('GET', KEYS[1]) or '0') > 0 then return 0 end
-redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5])
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6])
 return 1
 `;
 
@@ -228,7 +239,7 @@ export async function finalFlushAndClean(lectureId) {
   await flushToDB(lectureId);
   await redis.eval(DELETE_IF_EMPTY, {
     keys: [connKey(lectureId), liveQKey(lectureId), liveVKey(lectureId),
-           liveVCKey(lectureId), stratKey(lectureId)],
+           liveVCKey(lectureId), stratKey(lectureId), seqKey(lectureId)],
   });
 }
 
@@ -240,5 +251,6 @@ const qaService = {
   getRankedQuestions, submitQuestion, voteQuestion,
   markAnswered, flushToDB, finalFlushAndClean, invalidateCache,
   clientJoined, clientLeft, getStrategy, setStrategy, tryAcquireFlushLock,
+  bumpSeq, getSeq,
 };
 export default qaService;

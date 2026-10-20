@@ -1,0 +1,29 @@
+NOTE: k6 did not finish this run (see p1-1000-k6.txt). The client-side lines below read 0 because no summary exists; they are NOT measurements. CPU/socket/Redis lines are server-side and valid up to the failure.
+
+﻿tag=p1-1000 clients=1000 steady=120s lecture=79207741-a591-4c91-9a5d-617b555effb1
+window 2026-10-20T18:26:05.9990000+00:00 .. 2026-10-20T18:28:05.9990000+00:00
+
+mutations sent (steady)      : 0  (0/s cluster-wide)
+msgs received per client/s   : 0
+updates received per client/s: 0
+bytes received per client/s  : 0
+total bytes received/s       : 0
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+
+CPU % over the steady window (100 = one core):
+
+Sockets per core-api instance:
+  core-api-3: 333
+  core-api-4: 332
+  core-api-5: 335
+
+Redis (since RESETSTAT):
+  total_commands_processed:15022
+  total_net_output_bytes:76706292
+  cmdstat_hgetall:calls=4024,usec=120228,usec_per_call=29.88,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=923,usec=1912787,usec_per_call=2072.36,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=1,usec=8367,usec_per_call=8367.00,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=923,usec=2915845,usec_per_call=3159.10,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=2003,usec=800982,usec_per_call=399.89,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=1003,usec=20584,usec_per_call=20.52,rejected_calls=0,failed_calls=0
