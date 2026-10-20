@@ -1,0 +1,78 @@
+﻿docker : time="2026-10-20T16:23:18Z" level=info msg="\n🚀 Setup: creating test users and lecture...\n" source=console
+At line:1 char:457
++ ... short HEAD; docker run --rm -i --network globalclass_default -v ${PWD ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-10-2... source=console:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+time="2026-10-20T16:23:18Z" level=info msg="📚 Lecture created: fa8148ac-8239-45cc-a1d3-50ee4ff93af7" source=console
+time="2026-10-20T16:23:18Z" level=info msg="🎬 Stream started. HLS URL: 
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8" source=console
+time="2026-10-20T16:23:26Z" level=info msg="👥 Registered 200 test students\n" source=console
+time="2026-10-20T16:31:30Z" level=info msg="\n🧹 Teardown: ending stream for lecture 
+fa8148ac-8239-45cc-a1d3-50ee4ff93af7...\n" source=console
+time="2026-10-20T16:31:31Z" level=info msg="\n╔══════════════════════════════════════════════════════════════╗\n║  📊  
+Load Test Complete                                      ║\n║                                                           
+   ║\n║  Lecture ID : fa8148ac-8239-45cc-a1d3-50ee4ff93af7            ║\n║  Students   : 200                           
+               ║\n║                                                              ║\n║  MONITORING TIPS:                
+                            ║\n║  • docker stats           — live CPU/memory per container    ║\n║  • docker logs -f 
+<svc>   — watch for errors in real time    ║\n║                                                              ║\n║  
+BOTTLENECK IDENTIFICATION:                                  ║\n║  • High join_latency p95  → streaming-engine or 
+PostgreSQL   ║\n║  • High segment_latency   → MinIO or Nginx                   ║\n║  • Many join_errors       → 
+Node.js connection pool exhaust  ║\n║  • http_req_failed > 10%  → Nginx worker_connections limit   
+║\n╚══════════════════════════════════════════════════════════════╝\n" source=console
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<500' p(95)=5.37ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+    join_latency
+    ✓ 'p(95)<1000' p(95)=9.86ms
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 624615  1266.228963/s
+    checks_succeeded...: 100.00% 624615 out of 624615
+    checks_failed......: 0.00%   0 out of 624615
+
+    ✓ instructor registered
+    ✓ instructor logged in
+    ✓ lecture created
+    ✓ stream started
+    ✓ core-api healthy
+    ✓ join status 200
+    ✓ has viewer tier
+    ✓ status poll ok
+    ✓ catalog loaded
+    ✓ hls-status ok
+    ✓ stream ended
+
+    CUSTOM
+    early_stop_rate................: 19.87% 13931 out of 70090
+    join_latency...................: avg=4.35ms min=601.06µs med=3.31ms p(90)=7.52ms p(95)=9.86ms p(99)=18.03ms max=107.75ms
+    webrtc_tier_viewers............: 70090  142.087507/s
+
+    HTTP
+    http_req_duration..............: avg=2.28ms min=22.44µs  med=1.6ms  p(90)=3.89ms p(95)=5.37ms p(99)=10.36ms max=465.86ms
+      { expected_response:true }...: avg=2.28ms min=22.44µs  med=1.6ms  p(90)=3.89ms p(95)=5.37ms p(99)=10.36ms max=465.86ms
+    http_req_failed................: 0.00%  0 out of 554925
+    http_reqs......................: 554925 1124.952343/s
+
+    EXECUTION
+    iteration_duration.............: avg=2.97s  min=605.24ms med=3.17s  p(90)=4.67s  p(95)=4.75s  p(99)=4.81s   max=4.89s   
+    iterations.....................: 70090  142.087507/s
+    vus............................: 0      min=0              max=999 
+    vus_max........................: 1000   min=1000           max=1000
+
+    NETWORK
+    data_received..................: 357 MB 724 kB/s
+    data_sent......................: 208 MB 421 kB/s
+
+
+

@@ -1,0 +1,298 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {
+      "setup": {
+        "name": "setup",
+        "path": "::setup",
+        "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+        "groups": {},
+        "checks": {
+          "instructor registered": {
+            "passes": 1,
+            "fails": 0,
+            "name": "instructor registered",
+            "path": "::setup::instructor registered",
+            "id": "0bef0ae88b2990d7125fae679d8fe6d1"
+          },
+          "instructor logged in": {
+            "name": "instructor logged in",
+            "path": "::setup::instructor logged in",
+            "id": "6465d96ed100c55dbaf46cebfc6dfb97",
+            "passes": 1,
+            "fails": 0
+          },
+          "lecture created": {
+            "id": "74dd18c8e6e1bc9161ef7d47a47b5b2c",
+            "passes": 1,
+            "fails": 0,
+            "name": "lecture created",
+            "path": "::setup::lecture created"
+          },
+          "stream started": {
+            "id": "603ac8bbe94153ef59b621da3b88bd98",
+            "passes": 1,
+            "fails": 0,
+            "name": "stream started",
+            "path": "::setup::stream started"
+          }
+        }
+      },
+      "Health Check": {
+        "name": "Health Check",
+        "path": "::Health Check",
+        "id": "167c726a79efe9afd2c220eb9d49c1a2",
+        "groups": {},
+        "checks": {
+          "core-api healthy": {
+            "id": "254e51f2adc3d603eaf5856982671323",
+            "passes": 70090,
+            "fails": 0,
+            "name": "core-api healthy",
+            "path": "::Health Check::core-api healthy"
+          }
+        }
+      },
+      "Join Stream": {
+        "name": "Join Stream",
+        "path": "::Join Stream",
+        "id": "b4bc1535f2909bcb130250adbb9c34ab",
+        "groups": {},
+        "checks": {
+          "join status 200": {
+            "fails": 0,
+            "name": "join status 200",
+            "path": "::Join Stream::join status 200",
+            "id": "66f9ee783bc0156b8594a9a4dba27e77",
+            "passes": 70090
+          },
+          "has viewer tier": {
+            "name": "has viewer tier",
+            "path": "::Join Stream::has viewer tier",
+            "id": "e4bdc60b79ee741d367a5286f05223a0",
+            "passes": 70090,
+            "fails": 0
+          }
+        }
+      },
+      "Stream Viewing": {
+        "name": "Stream Viewing",
+        "path": "::Stream Viewing",
+        "id": "148a2995d35c31acb9531f3f91c9358b",
+        "groups": {},
+        "checks": {
+          "status poll ok": {
+            "name": "status poll ok",
+            "path": "::Stream Viewing::status poll ok",
+            "id": "7592348f8be56955105d5d71e2a16d3b",
+            "passes": 386332,
+            "fails": 0
+          }
+        }
+      },
+      "Browse Catalog": {
+        "name": "Browse Catalog",
+        "path": "::Browse Catalog",
+        "id": "239196eeab24a66df0816a030b21de64",
+        "groups": {},
+        "checks": {
+          "catalog loaded": {
+            "name": "catalog loaded",
+            "path": "::Browse Catalog::catalog loaded",
+            "id": "e6d7f9f0c0547ec2b5451178303200b9",
+            "passes": 21138,
+            "fails": 0
+          }
+        }
+      },
+      "Quality Switch": {
+        "name": "Quality Switch",
+        "path": "::Quality Switch",
+        "id": "08bc0194a88138631d282706f7bbc132",
+        "groups": {},
+        "checks": {
+          "hls-status ok": {
+            "name": "hls-status ok",
+            "path": "::Quality Switch::hls-status ok",
+            "id": "1b7bc3edfbe131740f768905901cf8f8",
+            "passes": 6870,
+            "fails": 0
+          }
+        }
+      },
+      "teardown": {
+        "name": "teardown",
+        "path": "::teardown",
+        "id": "a8a9942382e8ffe2e56ef29e664b8229",
+        "groups": {},
+        "checks": {
+          "stream ended": {
+            "name": "stream ended",
+            "path": "::teardown::stream ended",
+            "id": "6b1412c0bf5e1553b36e867c7be012a6",
+            "passes": 1,
+            "fails": 0
+          }
+        }
+      }
+    },
+    "checks": {}
+  },
+  "metrics": {
+    "http_req_receiving": {
+      "p(90)": 0.07780620000000008,
+      "p(95)": 0.10039559999999986,
+      "p(99)": 0.16667468000000016,
+      "max": 10.923025,
+      "avg": 0.04429613336757165,
+      "min": -1.421472,
+      "med": 0.034279
+    },
+    "data_sent": {
+      "count": 207772690,
+      "rate": 421199.93578109576
+    },
+    "checks": {
+      "passes": 624615,
+      "fails": 0,
+      "value": 1
+    },
+    "http_req_duration": {
+      "p(90)": 3.8914424,
+      "p(95)": 5.3713703999999955,
+      "p(99)": 10.36914484,
+      "max": 465.864548,
+      "avg": 2.281239871872834,
+      "min": 0.022441,
+      "med": 1.607642,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_tls_handshaking": {
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "p(99)": 0,
+      "max": 0
+    },
+    "http_req_waiting": {
+      "med": 1.547394,
+      "p(90)": 3.825212200000001,
+      "p(95)": 5.3049265999999955,
+      "p(99)": 10.292558240000004,
+      "max": 465.722137,
+      "avg": 2.2244143730179977,
+      "min": 0
+    },
+    "data_received": {
+      "count": 357329669,
+      "rate": 724384.102816786
+    },
+    "join_latency": {
+      "avg": 4.350984387030952,
+      "min": 0.601061,
+      "med": 3.3115430000000003,
+      "p(90)": 7.5207481000000005,
+      "p(95)": 9.865459250000006,
+      "p(99)": 18.033747310000006,
+      "max": 107.751388,
+      "thresholds": {
+        "p(95)<1000": false
+      }
+    },
+    "webrtc_tier_viewers": {
+      "count": 70090,
+      "rate": 142.0875067791489
+    },
+    "early_stop_rate": {
+      "passes": 13931,
+      "fails": 56159,
+      "value": 0.19875873876444572
+    },
+    "iteration_duration": {
+      "min": 605.24876,
+      "med": 3174.625173,
+      "p(90)": 4679.5303601000005,
+      "p(95)": 4754.1125525,
+      "p(99)": 4814.20899758,
+      "max": 4891.942514,
+      "avg": 2976.700337821174
+    },
+    "vus_max": {
+      "value": 1000,
+      "min": 1000,
+      "max": 1000
+    },
+    "http_reqs": {
+      "count": 554925,
+      "rate": 1124.9523426939536
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 554925,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "http_req_duration{expected_response:true}": {
+      "min": 0.022441,
+      "med": 1.607642,
+      "p(90)": 3.8914424,
+      "p(95)": 5.3713703999999955,
+      "p(99)": 10.36914484,
+      "max": 465.864548,
+      "avg": 2.281239871872834
+    },
+    "group_duration": {
+      "avg": 816.6218491646841,
+      "min": 0.435494,
+      "med": 3.065344,
+      "p(90)": 3515.4461307,
+      "p(95)": 4022.0403119999996,
+      "p(99)": 4525.22797469,
+      "max": 4577.471938
+    },
+    "iterations": {
+      "rate": 142.0875067791489,
+      "count": 70090
+    },
+    "http_req_connecting": {
+      "p(99)": 0,
+      "max": 27.017431,
+      "avg": 0.0005108269694102811,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0,
+      "p(95)": 0
+    },
+    "vus": {
+      "value": 0,
+      "min": 0,
+      "max": 999
+    },
+    "http_req_blocked": {
+      "max": 27.079177,
+      "avg": 0.004674857694283056,
+      "min": 0.000513,
+      "med": 0.003714,
+      "p(90)": 0.005594,
+      "p(95)": 0.006866,
+      "p(99)": 0.01599976000000001
+    },
+    "http_req_sending": {
+      "min": -1.350056,
+      "med": 0.010141,
+      "p(90)": 0.018933600000000033,
+      "p(95)": 0.02738579999999993,
+      "p(99)": 0.05334228000000003,
+      "max": 11.194824,
+      "avg": 0.012529365487227995
+    }
+  }
+}
