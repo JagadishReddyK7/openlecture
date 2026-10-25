@@ -194,3 +194,92 @@ rather than the client set the numbers.
 
 Raw: `raw/p1-{200,500,1000}-{k6.txt,derived.txt,stats.csv,redis.txt}`,
 `raw/p1-200-summary.json`.
+
+---
+
+## P2a — Coalesced broadcasts (2026-10-26)
+
+Same host, engine 29.9.1, AC power, 3 × core-api. Same k6 script and workload
+as P1. Window `QA_BROADCAST_WINDOW_MS=250`. Each broadcast is still the
+**full** list; bounding it is P2b.
+
+### Correctness check (no load generator)
+
+```powershell
+cd backend; node scripts/coalesce-check.js     # compose Redis on :6379
+```
+
+Three broadcaster instances, each with its own Redis connection, share one lecture:
+
+| Scenario | Result |
+|---|---|
+| Storm: 10,000 mutations from 90 concurrent writers over 7.2 s | 28 broadcasts. Last seq = final version (10,000). Seq strictly increasing. Min gap 256 ms. Worst mutation → covering broadcast 296 ms (p50 141 ms) |
+| Window edge: 200 single mutations spaced 210–290 ms apart | 188 broadcasts, last seq = final version, worst 307 ms |
+| Isolated mutation after quiet | published in 27 ms (leading edge, no window wait) |
+| Hand-off race, forced: mutation lands while the loop is exiting after release | published in 125 ms |
+| Crashed lease holder (lease taken, never published) | sweeper published after 2,039 ms (lease 2 s + sweep every 1 s) |
+
+The hand-off scenario was checked against a deliberately broken
+broadcaster with the re-run hand-off removed. That version **fails** it at 2,769 ms: the update
+waits for the lease to expire and the sweeper to pick it up. The random scenarios
+alone passed even with the bug, so this scenario is what covers it.
+
+### Load test
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 200 -Tag p2a-200   # likewise 500, 1000
+```
+
+| Clients | 200 | 500 | 1000 |
+|---|---:|---:|---:|
+| Completed? | yes | **yes** | **yes** |
+| Mutations (cluster-wide, steady) | 20.8 /s | 52.0 /s | 107.4 /s |
+| Update latency | med 135 · p95 249 · p99 263 · max 295 ms | med 140 · p95 254 · p99 268 · max 290 ms | med 147 · p95 264 · p99 292 · max 452 ms |
+| Messages received per client | 4.05 /s | 4.07 /s | 4.08 /s |
+| Bytes received per client | 68.7 KB/s | 102 KB/s | 108 KB/s |
+| Bytes received, all clients | 13.7 MB/s | 51.0 MB/s | 108 MB/s |
+| Mean message size | 16.9 KB | 25.0 KB | 26.5 KB |
+| ACK timeouts / errors / abnormal closes | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Egress through nginx (`docker stats` tx) | 14.3 MB/s | 52.3 MB/s | 109 MB/s |
+| Egress per core-api replica | 4.5–5.2 MB/s | 16.8–17.7 MB/s | 36.0–36.3 MB/s |
+| CPU, core-api (each, mean) | 3.4–4.9 % | 7.2–12.0 % | 12.8–23.8 % |
+| CPU, nginx (mean) | 5.9 % | 18.1 % | 36.8 % |
+| CPU, Redis (mean) | 1.7 % | 2.2 % | 3.1 % |
+| CPU, k6 (mean) | 31 % | 101 % | 200 % |
+| Sockets per core-api replica | 63 / 74 / 63 | 170 / 160 / 170 | 332 / 334 / 334 |
+| Redis `PUBLISH` (whole run) | 590 | 603 | 611 |
+
+Messages per client are ~4.0/s whatever the vote rate (20.8 → 107/s). The 0.1/s
+above that is the ACK each client gets for its own mutations. The `PUBLISH`
+count barely moves with load because there is one publisher per lecture per window.
+
+### Before vs after, 200 clients (the only level P1 completed)
+
+| | P1 (before) | P2a (after) | Change |
+|---|---:|---:|---:|
+| Messages per client | 21.4 /s | 4.05 /s | −81 % |
+| Bytes per client | 396 KB/s | 68.7 KB/s | −83 % |
+| Egress through nginx | 82.3 MB/s | 14.3 MB/s | −83 % |
+| core-api CPU (each, mean) | 9–11 % | 3.4–4.9 % | about −60 % |
+| Update latency p95 | 20 ms | 249 ms | **+229 ms** |
+
+At 500 clients, P1's 433 MB/s egress drove the load generator out of memory.
+P2a sustained 500 clients at 52 MB/s and 1000 clients at 109 MB/s.
+
+### Reading the numbers
+
+- **Messages are now bounded by the window, not the vote rate.** That is the design
+  goal. Egress grows linearly with clients (≈ 4/s × payload × N), not with clients × votes.
+- **Latency got worse at this load, as expected.** Under steady voting almost every
+  mutation lands inside an open window, so it waits for that window's trailing
+  broadcast: median ≈ half a window, p95 ≈ one window. That is the price of the
+  bound. It holds flat from 200 to 1000 clients (p95 249 → 264 ms) while the
+  vote rate grew 5×. An isolated mutation still goes out immediately (27 ms in
+  the check above).
+- **Payload size is now the dominant cost.** Mean message size grew from 16.9 KB to
+  26.5 KB as the lecture filled to 100 questions with larger vote counts. Bytes per
+  client at 1000 (108 KB/s) are mostly list size. That is what P2b bounds.
+- Max latency 452 ms at 1000 clients is the one outlier above window + 200 ms.
+  The cause wasn't investigated, and nothing was dropped (0 ACK timeouts).
+
+Raw: `raw/p2a-{200,500,1000}-{k6.txt,summary.json,derived.txt,stats.csv,redis.txt}`.

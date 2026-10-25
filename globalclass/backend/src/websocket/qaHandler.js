@@ -9,12 +9,17 @@
 //   Solution: every state-mutating action publishes to a Redis channel (qa:broadcast:<lectureId>).
 //   Every instance subscribes to that channel and broadcasts to its *local* WebSocket clients.
 //   This way, all N instances stay in sync with zero direct coupling between them.
+//
+// COALESCING (services/broadcaster.js): mutations don't publish directly.
+//   One instance per lecture holds a short Redis lease and publishes at most
+//   once per QA_BROADCAST_WINDOW_MS, re-publishing if more mutations arrived.
 
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import qaService from '../services/qaService.js';
 import { createRedisClient } from '../config/redis.js';
 import redis from '../config/redis.js';
+import { createBroadcaster, channel as pubChannel } from '../services/broadcaster.js';
 
 // lectureId -> Set of WebSocket clients (local to this instance only)
 const rooms = new Map();
@@ -32,8 +37,6 @@ const subscriber = createRedisClient();
 // Track which lecture channels this instance is already subscribed to,
 // so we don't re-subscribe on every new client connection to the same lecture.
 const subscribedChannels = new Set();
-
-const pubChannel = (lectureId) => `qa:broadcast:${lectureId}`;
 
 // Subscribe this instance to a lecture channel (idempotent).
 async function ensureSubscribed(lectureId) {
@@ -65,23 +68,23 @@ async function maybeUnsubscribe(lectureId) {
 }
 
 // Build the update a client sees: ranked list + the lecture's sequence number.
-// seq is read BEFORE the data. Every mutation writes its data and only then
-// bumps seq, so a payload tagged seq=N always includes mutations 1..N.
-async function buildUpdate(lectureId) {
-  const seq = await qaService.getSeq(lectureId);
+// seq must be read BEFORE the data. Every mutation writes its data and only
+// then bumps seq, so a payload tagged seq=N always includes mutations 1..N.
+// The strategy is read from Redis, so whichever instance builds the payload
+// ranks questions the way the instructor chose.
+async function buildUpdate(lectureId, seq) {
+  if (seq === undefined) seq = await qaService.getSeq(lectureId);
   const strategy = await qaService.getStrategy(lectureId);
   const questions = await qaService.getRankedQuestions(lectureId, strategy);
-  return { type: 'QUESTIONS_UPDATE', seq, questions, strategy };
+  // "type" and "seq" first: clients read seq from the prefix without parsing
+  return JSON.stringify({ type: 'QUESTIONS_UPDATE', seq, questions, strategy });
 }
 
-// Fetch the current ranked question list and publish it to the Redis channel.
-// Every subscribed Core API instance will receive this and relay to its local clients.
-// The strategy is read from Redis, so a vote landing on any instance ranks
-// questions the way the instructor chose.
-export async function broadcastQuestions(lectureId) {
-  const payload = JSON.stringify(await buildUpdate(lectureId));
-  await redis.publish(pubChannel(lectureId), payload);
-}
+const broadcaster = createBroadcaster({
+  redis,
+  buildPayload: buildUpdate,
+  windowMs: Number(process.env.QA_BROADCAST_WINDOW_MS || 250),
+});
 
 // Applies one client message. Returns true if Q&A state changed.
 async function applyMessage(ws, lectureId, msg) {
@@ -145,9 +148,12 @@ export function initQAWebSocket() {
       await qaService.clientJoined(lectureId);
       await ensureSubscribed(lectureId);
 
-      // Push current state immediately so late joiners see existing questions
+      // Push current state immediately so late joiners see existing questions.
+      // The last published payload is one GET; building it costs two HGETALLs
+      // and a sort per connection, which adds up in a reconnect storm. If a
+      // newer broadcast is pending it arrives right after (we're subscribed).
       try {
-        ws.send(JSON.stringify(await buildUpdate(lectureId)));
+        ws.send((await broadcaster.getSnapshot(lectureId)) ?? (await buildUpdate(lectureId)));
       } catch (err) {
         ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
       }
@@ -160,12 +166,11 @@ export function initQAWebSocket() {
         await ready;
         if (!(await applyMessage(ws, lectureId, msg))) return;
 
-        // Data is written; now bump the lecture's sequence number. The sender
-        // gets it back in an ACK, so it can tell which broadcast is the first
-        // one that includes its own change.
-        const seq = await qaService.bumpSeq(lectureId);
+        // Data is written; bump the lecture's seq and let the broadcaster
+        // publish (now, or at the end of the current window). The sender gets
+        // seq in an ACK, so it can tell which broadcast first includes its change.
+        const seq = await broadcaster.onMutation(lectureId);
         ws.send(JSON.stringify({ type: 'ACK', clientMsgId: msg.clientMsgId, seq }));
-        await broadcastQuestions(lectureId); // publishes to Redis → all instances
       } catch (err) {
         if (err.message !== 'Already voted') console.error('[Q&A WebSocket Message Error]:', err);
         ws.send(JSON.stringify({ type: 'ERROR', clientMsgId: msg.clientMsgId, message: err.message }));
@@ -208,6 +213,19 @@ export function initQAWebSocket() {
       }
     }
   }, 5000);
+
+  // If a lease holder crashed mid-window, its lease expires and any instance
+  // with sockets in that lecture publishes the missed state. (An instance
+  // with no sockets there has nobody to deliver to.)
+  setInterval(async () => {
+    for (const [lectureId] of rooms) {
+      try {
+        await broadcaster.sweep(lectureId);
+      } catch (err) {
+        console.error(`[Broadcast sweep] ${lectureId}:`, err.message);
+      }
+    }
+  }, 1000);
 
   console.log('[WS] Q&A WebSocket initialized with Redis Pub/Sub broadcast');
 }

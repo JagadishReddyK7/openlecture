@@ -10,6 +10,11 @@ export function useQAWebSocket(lectureId, token, onMessage) {
   const reconnectAttempts = useRef(0);
   const reconnectTimer = useRef(null);
   const isMounted = useRef(true);
+  // Highest QUESTIONS_UPDATE seq seen on the current socket. The snapshot sent
+  // on connect can race a broadcast already in flight, so an older update may
+  // arrive after a newer one; it is dropped. Reset per socket because seq
+  // restarts when a lecture's live buffer is cleared.
+  const lastSeq = useRef(-1);
   // Keep a ref to the latest onMessage so connect() never needs it as a dependency.
   // Without this, an inline arrow onMessage would give a new reference every render,
   // causing connect to be recreated, the effect to re-run, and the socket to reconnect
@@ -33,11 +38,17 @@ export function useQAWebSocket(lectureId, token, onMessage) {
 
     socket.onopen = () => {
       reconnectAttempts.current = 0;
+      lastSeq.current = -1;
     };
 
     socket.onmessage = (e) => {
       try {
-        onMessageRef.current(JSON.parse(e.data));
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'QUESTIONS_UPDATE' && typeof msg.seq === 'number') {
+          if (msg.seq < lastSeq.current) return;
+          lastSeq.current = msg.seq;
+        }
+        onMessageRef.current(msg);
       } catch {
         console.error('Q&A WS: failed to parse message');
       }

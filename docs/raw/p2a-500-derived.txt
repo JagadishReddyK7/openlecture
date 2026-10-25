@@ -1,0 +1,39 @@
+﻿tag=p2a-500 clients=500 steady=120s lecture=f89da377-03a1-48ec-a048-57be3445b203
+window 2026-10-25T22:41:21.2110000+00:00 .. 2026-10-25T22:43:21.2110000+00:00
+
+mutations sent (steady)      : 6238  (52/s cluster-wide)
+msgs received per client/s   : 4.07
+updates received per client/s: 3.97
+bytes received per client/s  : 101961.95
+total bytes received/s       : 50980974
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 140  p95 254  p99 268  max 290
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  18.1 peak=  28.1
+  globalclass-core-api-3           n= 59 mean=   7.6 peak=  12.3
+  globalclass-core-api-4           n= 59 mean=  12.0 peak=  41.2
+  globalclass-core-api-5           n= 59 mean=   7.2 peak=   9.5
+  globalclass-k6                   n= 59 mean= 101.4 peak= 180.2
+  globalclass-minio-1              n= 59 mean=   0.9 peak=   9.4
+  globalclass-postgres-1           n= 59 mean=   7.3 peak=  44.0
+  globalclass-redis-1              n= 59 mean=   2.2 peak=   4.5
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 170
+  core-api-4: 160
+  core-api-5: 170
+
+Redis (since RESETSTAT):
+  total_commands_processed:54626
+  total_net_output_bytes:71331414
+  cmdstat_hgetall:calls=1316,usec=81040,usec_per_call=61.58,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=8811,usec=281329,usec_per_call=31.93,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=603,usec=7269,usec_per_call=12.05,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=7627,usec=18888,usec_per_call=2.48,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=7027,usec=44125,usec_per_call=6.28,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=7027,usec=46219,usec_per_call=6.58,rejected_calls=0,failed_calls=0

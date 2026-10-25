@@ -1,0 +1,39 @@
+﻿tag=p2a-1000 clients=1000 steady=120s lecture=b9c1c78e-6afe-4954-adf9-9c75645c7507
+window 2026-10-25T22:45:10.3160000+00:00 .. 2026-10-25T22:47:10.3160000+00:00
+
+mutations sent (steady)      : 12884  (107.4/s cluster-wide)
+msgs received per client/s   : 4.08
+updates received per client/s: 3.98
+bytes received per client/s  : 108083.17
+total bytes received/s       : 108083173
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 147  p95 264  p99 292  max 452
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  36.8 peak=  59.4
+  globalclass-core-api-3           n= 59 mean=  23.8 peak=  46.8
+  globalclass-core-api-4           n= 59 mean=  12.8 peak=  17.9
+  globalclass-core-api-5           n= 59 mean=  13.4 peak=  18.9
+  globalclass-k6                   n= 59 mean= 199.6 peak= 321.7
+  globalclass-minio-1              n= 59 mean=   0.9 peak=   6.5
+  globalclass-postgres-1           n= 59 mean=  14.5 peak=  44.1
+  globalclass-redis-1              n= 59 mean=   3.1 peak=   7.1
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 332
+  core-api-4: 334
+  core-api-5: 334
+
+Redis (since RESETSTAT):
+  total_commands_processed:101951
+  total_net_output_bytes:97152758
+  cmdstat_hgetall:calls=1352,usec=115018,usec_per_call=85.07,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=16435,usec=462434,usec_per_call=28.14,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=611,usec=6842,usec_per_call=11.20,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=15736,usec=51703,usec_per_call=3.29,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=14636,usec=98649,usec_per_call=6.74,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=14636,usec=92078,usec_per_call=6.29,rejected_calls=0,failed_calls=0

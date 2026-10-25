@@ -126,6 +126,7 @@ function run(data, idx, isAsker, closeAt, inSteady) {
 
   let questions = [];
   let latestRaw = null;        // newest QUESTIONS_UPDATE, parsed on demand
+  let lastSeq = -1;            // older updates (snapshot vs broadcast race) are not applied
   const voted = new Set();
   const pending = new Map();   // clientMsgId -> { sentAt, type, seq }
   const recent = [];           // [{ seq, at }] of received updates, newest last
@@ -202,7 +203,7 @@ function run(data, idx, isAsker, closeAt, inSteady) {
     if (e.data.startsWith(UPDATE_PREFIX)) {
       const seq = Number(SEQ_RE.exec(e.data.slice(0, 64))[1]);
       if (inSteady(at)) updateMsgs.add(1);
-      latestRaw = e.data;
+      if (seq >= lastSeq) { lastSeq = seq; latestRaw = e.data; }
       recent.push({ seq, at });
       if (recent.length > 500) recent.shift();
       for (const [id, p] of pending) {
