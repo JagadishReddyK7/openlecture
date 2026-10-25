@@ -13,13 +13,18 @@ const STRATEGY_LABELS = {
 const TABS = ['all', 'unanswered', 'answered'];
 
 export default function InstructorQAView({ lectureId, token }) {
+  // Updates are bounded: top-ranked unanswered, latest answered, and counts
   const [questions, setQuestions] = useState([]);
+  const [answered, setAnswered] = useState([]);
+  const [counts, setCounts] = useState(null);
   const [strategy, setStrategy] = useState('default');
   const [tab, setTab] = useState('unanswered');
 
   const { send } = useQAWebSocket(lectureId, token, (msg) => {
     if (msg.type === 'QUESTIONS_UPDATE') {
       setQuestions(msg.questions);
+      setAnswered(msg.answered || []);
+      setCounts(msg.counts || null);
       if (msg.strategy) setStrategy(msg.strategy);
     }
   });
@@ -34,13 +39,12 @@ export default function InstructorQAView({ lectureId, token }) {
     send({ type: 'SET_STRATEGY', strategy: selected });
   }
 
-  const filtered = questions.filter(q => {
-    if (tab === 'unanswered') return !q.is_answered;
-    if (tab === 'answered')   return q.is_answered;
-    return true;
-  });
+  const filtered =
+    tab === 'unanswered' ? questions :
+    tab === 'answered'   ? answered :
+    [...questions, ...answered];
 
-  const unansweredCount = questions.filter(q => !q.is_answered).length;
+  const unansweredCount = counts ? counts.unanswered : questions.length;
 
   return (
     <div className="qa-panel">

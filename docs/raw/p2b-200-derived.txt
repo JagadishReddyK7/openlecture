@@ -1,0 +1,39 @@
+﻿tag=p2b-200 clients=200 steady=120s lecture=f3706d1f-8275-43b7-8188-ad6200752305
+window 2026-10-25T23:02:57.9820000+00:00 .. 2026-10-25T23:04:57.9820000+00:00
+
+mutations sent (steady)      : 2583  (21.5/s cluster-wide)
+msgs received per client/s   : 4.07
+updates received per client/s: 3.96
+bytes received per client/s  : 49197.17
+total bytes received/s       : 9839435
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 132  p95 247  p99 256  max 264
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=   4.3 peak=   5.6
+  globalclass-core-api-3           n= 59 mean=   2.2 peak=   4.2
+  globalclass-core-api-4           n= 59 mean=   4.1 peak=  20.6
+  globalclass-core-api-5           n= 59 mean=   2.2 peak=   3.6
+  globalclass-k6                   n= 59 mean=  24.3 peak=  39.8
+  globalclass-minio-1              n= 59 mean=   0.8 peak=   4.7
+  globalclass-postgres-1           n= 59 mean=   3.2 peak=  22.9
+  globalclass-redis-1              n= 59 mean=   1.7 peak=   3.7
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 63
+  core-api-4: 64
+  core-api-5: 73
+
+Redis (since RESETSTAT):
+  total_commands_processed:88680
+  total_net_output_bytes:30464568
+  cmdstat_hgetall:calls=128,usec=15321,usec_per_call=119.70,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=8044,usec=439309,usec_per_call=54.61,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=587,usec=4366,usec_per_call=7.44,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=3136,usec=9055,usec_per_call=2.89,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=2836,usec=11927,usec_per_call=4.21,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=2836,usec=15886,usec_per_call=5.60,rejected_calls=0,failed_calls=0

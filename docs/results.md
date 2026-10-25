@@ -283,3 +283,120 @@ P2a sustained 500 clients at 52 MB/s and 1000 clients at 109 MB/s.
   The cause wasn't investigated, and nothing was dropped (0 ACK timeouts).
 
 Raw: `raw/p2a-{200,500,1000}-{k6.txt,summary.json,derived.txt,stats.csv,redis.txt}`.
+
+---
+
+## P2b — Bounded payload + incremental ranking (2026-10-26)
+
+Same host, engine 29.9.1, AC power, 3 × core-api, window 250 ms. Each update
+now carries the top 50 unanswered questions in the strategy's order, the 20
+most recently answered, and counts for the whole lecture (`QA_TOP_K`,
+`QA_ANSWERED_K`). The order comes from per-lecture Redis sorted sets kept up
+to date by the vote, submit and answer scripts, so building an update reads
+50 + 20 entries instead of `HGETALL` + sort over every question.
+
+### Correctness checks
+
+```powershell
+docker compose exec -T core-api node scripts/ranking-check.js
+cd backend; node scripts/smoke.js
+```
+
+`ranking-check.js` runs inside a core-api container because a native Windows
+PostgreSQL on this host also listens on `:5432` and answers `localhost`
+first. Redis on `localhost:6379` was checked to be the compose instance
+(same `run_id`), so the P2a coalescing check stands.
+
+| Check | Result |
+|---|---|
+| 300 questions, 3,000 skewed random votes (2,911 accepted, 89 duplicates), 40 answered: top 50 from the index vs sorting the full list in memory | identical, including vote counts, for `default`, `votes` and `recency` |
+| Counts | 300 total / 260 unanswered / 40 answered for every strategy |
+| Answered list | the 20 most recently answered, newest first |
+| Vote on unknown question | rejected (`Question not found`), no vote-count entry created |
+| Vote on answered question | accepted |
+| Payload with 300 questions | 17,059 B bounded vs 72,619 B full list |
+| Smoke test (extended) | 21/21 pass |
+
+The smoke test now also sends a vote for a nonexistent question, marks a
+question answered, and reads the lecture back through REST **after all sockets
+close**. That read is served from Postgres once the buffer is cleared, so it
+checks the flush rather than the Redis buffer.
+
+**Regression check against P2a (`35f91a6`):** the same smoke test fails 4
+checks on the old code. The bad vote is accepted, and **0 of 2 questions reach
+Postgres**: the vote's dangling foreign key rolls back every flush of the
+lecture, and the buffer is then deleted. One of the 4 failures, "answered
+question moves to the answered list", is only the new payload shape, not a bug.
+
+### Load test, same workload as P2a (up to 100 questions)
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 200 -Tag p2b-200   # likewise 500, 1000
+```
+
+| Clients | 200 | 500 | 1000 |
+|---|---:|---:|---:|
+| Mutations (cluster-wide, steady) | 21.5 /s | 51.7 /s | 102.4 /s |
+| Update latency | med 132 · p95 247 · p99 256 · max 264 ms | med 139 · p95 251 · p99 263 · max 317 ms | med 145 · p95 259 · p99 280 · max 339 ms |
+| Messages received per client | 4.07 /s | 4.08 /s | 4.07 /s |
+| Bytes received per client | 49.2 KB/s | 54.4 KB/s | 54.4 KB/s |
+| Mean message size | 12.1 KB | 13.3 KB | 13.4 KB |
+| Egress through nginx | 10.3 MB/s | 27.9 MB/s | 56.2 MB/s |
+| Egress per core-api replica | 3.2–3.7 MB/s | 8.9–9.6 MB/s | 18.4–18.9 MB/s |
+| CPU, core-api (each, mean) | 2.2–4.1 % | 4.8–10.1 % | 10.2–20.6 % |
+| CPU, nginx (mean) | 4.3 % | 11.0 % | 23.8 % |
+| CPU, k6 (mean) | 24 % | 71 % | 166 % |
+| `HGETALL` calls (whole run) | 128 | 124 | 170 |
+| ACK timeouts / errors / abnormal closes | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+
+vs P2a at 1000 clients: bytes per client 108 → 54.4 KB/s (−50 %), egress
+109 → 56 MB/s, core-api CPU 12.8–23.8 % → 10.2–20.6 %. `HGETALL` dropped from
+1,352 to 170 per run. The remaining calls are connects that arrive before any
+snapshot exists, plus the flush. Message size now stays at ~13 KB as the lecture fills.
+In P2a it grew from 17 to 26 KB.
+
+### Large lecture: 1,000 questions, 500 clients, P2a vs P2b
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 500 -Tag p2b-large -K6Env 'SEED_QUESTIONS=1000','QMAX=1100'
+# p2a-large: same command with core-api built from 35f91a6
+```
+
+1,000 questions are created through REST in `setup()` before anyone connects.
+The workload is otherwise identical. Both runs are on the same stack, a few minutes apart.
+
+| | P2a (full list) | P2b (bounded) | Change |
+|---|---:|---:|---:|
+| Mean message size | 269.5 KB | 13.7 KB | −95 % |
+| Bytes received per client | 1,059 KB/s | 55.8 KB/s | −95 % |
+| Egress through nginx | 531 MB/s | 28.1 MB/s | −95 % |
+| Egress per core-api replica | 170–179 MB/s | 9.4–9.7 MB/s | |
+| CPU, core-api (each, mean) | 29–35 % | 4.9–11.6 % | |
+| CPU, nginx (mean) | 89 % | 11.6 % | |
+| Redis output bytes (whole run) | 854 MB | 62 MB | |
+| Update latency p95 / p99 / max | 401 / 490 / 799 ms | 251 / 264 / 324 ms | |
+| Messages per client | 3.93 /s | 4.07 /s | |
+
+In P2a the k6 container averaged 706 % CPU (peak 882 %) receiving 531 MB/s. Some of
+P2a's extra latency, and its slightly lower message rate, is therefore the
+load generator falling behind. So that column gives P2a's server cost but
+overstates its latency.
+
+### Reading the numbers
+
+- **Payload is now bounded by K, not by the lecture's size.** With 1,000
+  questions the old update was 270 KB and went out 4 times a second to every
+  client. Now it is ~14 KB whether the lecture has 100 questions or 1,000.
+- **Combined with P2a**, per-client bytes at 500 clients went from "could not sustain"
+  (P1: 433 MB/s egress at under 100 questions, then the host failed) to 27.9 MB/s.
+- **Latency is unchanged from P2a** (p95 ≈ 250 ms). The window sets it, not the payload.
+- **Behaviour changes:** clients see the top 50 open questions plus the 20 most recently
+  answered. The full list is still available via `GET /api/lectures/:id/questions`.
+  `votes` now breaks ties oldest-first, while `default` is still newest-first; before,
+  `votes` had no defined tie order. The instructor's "answered" tab shows the latest 20.
+- **Not verified in a browser.** The React views compile (`react-scripts build` with
+  `DISABLE_ESLINT_PLUGIN=true`). A normal build fails on a pre-existing ESLint config
+  error in `VideoPlayer.jsx` (`react-hooks/exhaustive-deps` rule not found), which
+  this phase did not touch.
+
+Raw: `raw/p2b-{200,500,1000,large}-*`, `raw/p2a-large-*`.

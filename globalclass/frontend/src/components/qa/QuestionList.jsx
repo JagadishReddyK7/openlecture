@@ -6,12 +6,21 @@ import QuestionInput from './QuestionInput';
 import './qa.css';
 
 export default function QuestionList({ lectureId, token, user }) {
+  // Updates are bounded: top-ranked unanswered questions, the most recently
+  // answered ones, and counts for the whole lecture.
   const [questions, setQuestions] = useState([]);
+  const [answered, setAnswered] = useState([]);
+  const [counts, setCounts] = useState(null);
   const [voted, setVoted] = useState(new Set());
 
   const { send } = useQAWebSocket(lectureId, token, (msg) => {
-    if (msg.type === 'QUESTIONS_UPDATE') setQuestions(msg.questions);
+    if (msg.type === 'QUESTIONS_UPDATE') {
+      setQuestions(msg.questions);
+      setAnswered(msg.answered || []);
+      setCounts(msg.counts || null);
+    }
   });
+  const hidden = counts ? counts.unanswered - questions.length : 0;
 
   function vote(questionId) {
     if (voted.has(questionId)) return;
@@ -31,13 +40,13 @@ export default function QuestionList({ lectureId, token, user }) {
       <QuestionInput send={send} />
 
       <div className="qa-list">
-        {questions.length === 0 ? (
+        {questions.length === 0 && answered.length === 0 ? (
           <div className="qa-empty">
             <div className="qa-empty-icon">💬</div>
             No questions yet. Be the first to ask!
           </div>
         ) : (
-          questions.map(q => (
+          [...questions, ...answered].map(q => (
             <div key={q.id} className={`qa-card${q.is_answered ? ' is-answered' : ''}`}>
               <button
                 className={`qa-vote-btn${voted.has(q.id) ? ' voted' : ''}`}
@@ -58,6 +67,9 @@ export default function QuestionList({ lectureId, token, user }) {
               </div>
             </div>
           ))
+        )}
+        {hidden > 0 && (
+          <div className="qa-empty">Showing the top {questions.length} of {counts.unanswered} open questions</div>
         )}
       </div>
     </div>

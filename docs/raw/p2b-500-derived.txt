@@ -1,0 +1,39 @@
+﻿tag=p2b-500 clients=500 steady=120s lecture=fabbe5c7-dd5c-4595-9695-6ca1287a98d8
+window 2026-10-25T23:06:25.6750000+00:00 .. 2026-10-25T23:08:25.6750000+00:00
+
+mutations sent (steady)      : 6199  (51.7/s cluster-wide)
+msgs received per client/s   : 4.08
+updates received per client/s: 3.98
+bytes received per client/s  : 54412.02
+total bytes received/s       : 27206008
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 139  p95 251  p99 263  max 317
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  11.0 peak=  20.7
+  globalclass-core-api-3           n= 59 mean=   4.8 peak=   6.8
+  globalclass-core-api-4           n= 59 mean=  10.1 peak=  35.8
+  globalclass-core-api-5           n= 59 mean=   4.8 peak=   7.4
+  globalclass-k6                   n= 59 mean=  70.6 peak= 140.7
+  globalclass-minio-1              n= 59 mean=   0.9 peak=  10.2
+  globalclass-postgres-1           n= 59 mean=   6.7 peak=  39.5
+  globalclass-redis-1              n= 59 mean=   2.3 peak=   5.0
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 169
+  core-api-4: 169
+  core-api-5: 162
+
+Redis (since RESETSTAT):
+  total_commands_processed:139707
+  total_net_output_bytes:43500070
+  cmdstat_hgetall:calls=124,usec=39754,usec_per_call=320.60,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=16406,usec=801389,usec_per_call=48.85,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=603,usec=5435,usec_per_call=9.01,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=7593,usec=20714,usec_per_call=2.73,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=6993,usec=27950,usec_per_call=4.00,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=6993,usec=32657,usec_per_call=4.67,rejected_calls=0,failed_calls=0

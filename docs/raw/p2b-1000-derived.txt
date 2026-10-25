@@ -1,0 +1,39 @@
+﻿tag=p2b-1000 clients=1000 steady=120s lecture=04080bd2-f108-4bee-8015-624fd2c9cf51
+window 2026-10-25T23:10:16.7210000+00:00 .. 2026-10-25T23:12:16.7210000+00:00
+
+mutations sent (steady)      : 12292  (102.4/s cluster-wide)
+msgs received per client/s   : 4.07
+updates received per client/s: 3.97
+bytes received per client/s  : 54411.28
+total bytes received/s       : 54411281
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 145  p95 259  p99 280  max 339
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 58 mean=  23.8 peak=  29.0
+  globalclass-core-api-3           n= 58 mean=  10.6 peak=  13.3
+  globalclass-core-api-4           n= 58 mean=  20.6 peak=  44.0
+  globalclass-core-api-5           n= 58 mean=  10.2 peak=  13.5
+  globalclass-k6                   n= 58 mean= 165.8 peak= 324.7
+  globalclass-minio-1              n= 58 mean=   0.9 peak=   5.9
+  globalclass-postgres-1           n= 58 mean=  13.7 peak=  44.4
+  globalclass-redis-1              n= 58 mean=   3.3 peak=   6.9
+  globalclass-streaming-engine-3   n= 58 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 58 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 58 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 334
+  core-api-4: 332
+  core-api-5: 334
+
+Redis (since RESETSTAT):
+  total_commands_processed:214829
+  total_net_output_bytes:61694278
+  cmdstat_hgetall:calls=170,usec=72145,usec_per_call=424.38,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=30442,usec=1295095,usec_per_call=42.54,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=606,usec=5386,usec_per_call=8.89,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=15096,usec=34195,usec_per_call=2.27,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=13996,usec=52136,usec_per_call=3.73,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=13996,usec=67259,usec_per_call=4.81,rejected_calls=0,failed_calls=0

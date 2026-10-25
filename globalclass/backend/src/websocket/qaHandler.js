@@ -75,9 +75,10 @@ async function maybeUnsubscribe(lectureId) {
 async function buildUpdate(lectureId, seq) {
   if (seq === undefined) seq = await qaService.getSeq(lectureId);
   const strategy = await qaService.getStrategy(lectureId);
-  const questions = await qaService.getRankedQuestions(lectureId, strategy);
+  // Bounded: top K unanswered + latest answered + counts, not the whole list
+  const { questions, answered, counts } = await qaService.getLiveView(lectureId, strategy);
   // "type" and "seq" first: clients read seq from the prefix without parsing
-  return JSON.stringify({ type: 'QUESTIONS_UPDATE', seq, questions, strategy });
+  return JSON.stringify({ type: 'QUESTIONS_UPDATE', seq, strategy, counts, questions, answered });
 }
 
 const broadcaster = createBroadcaster({

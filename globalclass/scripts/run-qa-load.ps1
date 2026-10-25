@@ -14,6 +14,8 @@ param(
   [int] $Ramp = 30,
   [int] $Steady = 120,
   [string] $K6Image = 'grafana/k6:1.3.0',
+  # Extra k6 env vars, e.g. -K6Env 'SEED_QUESTIONS=1000','QMAX=1100'
+  [string[]] $K6Env = @(),
   [switch] $AllowBattery
 )
 
@@ -53,6 +55,7 @@ $k6Args = @('run', '--rm', '-i', '--name', 'globalclass-k6', '--memory', '5g', '
   '-v', "$gc\k6:/k6", '-v', "${raw}:/out", $K6Image, 'run', '/k6/qa_ws_test.js',
   '--env', "CLIENTS=$Clients", '--env', "RAMP=$Ramp", '--env', "STEADY=$Steady",
   '--summary-export', "/out/$Tag-summary.json")
+foreach ($e in $K6Env) { $k6Args += @('--env', $e) }
 $p = Start-Process docker -ArgumentList $k6Args -NoNewWindow -Wait -PassThru `
   -RedirectStandardOutput $stdout -RedirectStandardError $stderr
 Stop-Job $sampler; Remove-Job $sampler -Force

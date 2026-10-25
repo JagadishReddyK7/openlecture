@@ -16,6 +16,8 @@
 // Workload knobs (defaults in brackets):
 //   CLIENTS [200]  RAMP s [30]  STEADY s [120]
 //   ASK_FRACTION [0.05]  ASK_EVERY s [10-20]  VOTE_EVERY s [5-15]  QMAX [100]
+//   SEED_QUESTIONS [0]  questions created in setup (REST) before anyone connects,
+//                       to measure payload size on a large lecture
 // =============================================================================
 
 import http from 'k6/http';
@@ -36,6 +38,7 @@ const ASK_FRACTION = parseFloat(__ENV.ASK_FRACTION || '0.05');
 const ASK_MIN = 10, ASK_MAX = 20;       // s between questions per asker
 const VOTE_MIN = 5, VOTE_MAX = 15;      // s between votes per voter
 const QMAX = parseInt(__ENV.QMAX || '100', 10);
+const SEED_QUESTIONS = parseInt(__ENV.SEED_QUESTIONS || '0', 10);
 const PENDING_TIMEOUT_MS = 10000;
 const UPDATE_PREFIX = '{"type":"QUESTIONS_UPDATE","seq":';
 const SEQ_RE = /"seq":(\d+)/;
@@ -99,6 +102,12 @@ export function setup() {
     http.batch(batchTokens.map((t) => ['POST', `${BASE}/api/lectures/${lecture.id}/enroll`, null, auth(t)]));
     tokens.push(...batchTokens);
   }
+
+  for (let b = 0; b < SEED_QUESTIONS; b += 50) {
+    const n = Math.min(50, SEED_QUESTIONS - b);
+    http.batch(Array.from({ length: n }, (_, i) => ['POST', `${BASE}/api/lectures/${lecture.id}/questions`,
+      JSON.stringify({ content: `seeded question ${b + i} for a large lecture` }), auth(tokens[(b + i) % tokens.length])]));
+  }
   if (tokens.some((t) => !t)) throw new Error('some student logins failed');
 
   const base = Date.now() + 2000;
@@ -106,7 +115,7 @@ export function setup() {
   const steadyEnd = steadyStart + STEADY * 1000;
   console.log(`LECTURE_ID ${lecture.id}`);
   console.log(`STEADY_WINDOW ${new Date(steadyStart).toISOString()} ${new Date(steadyEnd).toISOString()}`);
-  console.log(`WORKLOAD clients=${CLIENTS} askers=${Math.round(CLIENTS * ASK_FRACTION)} ask_every=${ASK_MIN}-${ASK_MAX}s vote_every=${VOTE_MIN}-${VOTE_MAX}s qmax=${QMAX} steady=${STEADY}s`);
+  console.log(`WORKLOAD clients=${CLIENTS} askers=${Math.round(CLIENTS * ASK_FRACTION)} ask_every=${ASK_MIN}-${ASK_MAX}s vote_every=${VOTE_MIN}-${VOTE_MAX}s qmax=${QMAX} seeded=${SEED_QUESTIONS} steady=${STEADY}s`);
   return { lectureId: lecture.id, tokens, base, steadyStart, steadyEnd };
 }
 
@@ -125,6 +134,7 @@ function run(data, idx, isAsker, closeAt, inSteady) {
   const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${data.lectureId}&token=${data.tokens[idx]}`);
 
   let questions = [];
+  let total = 0;               // questions in the lecture (the list itself may be capped)
   let latestRaw = null;        // newest QUESTIONS_UPDATE, parsed on demand
   let lastSeq = -1;            // older updates (snapshot vs broadcast race) are not applied
   const voted = new Set();
@@ -160,12 +170,14 @@ function run(data, idx, isAsker, closeAt, inSteady) {
     }
     if (now >= data.steadyEnd) return;
     if (latestRaw !== null) {
-      questions = JSON.parse(latestRaw).questions;
+      const u = JSON.parse(latestRaw);
+      questions = u.questions;
+      total = u.counts ? u.counts.total : u.questions.length;
       latestRaw = null;
     }
 
     if (isAsker) {
-      if (questions.length < QMAX) {
+      if (total < QMAX) {
         send('SUBMIT_QUESTION', { content: `load question ${idx}-${nextId} ${now}` });
       }
     } else {

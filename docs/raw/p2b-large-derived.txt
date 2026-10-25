@@ -1,0 +1,39 @@
+﻿tag=p2b-large clients=500 steady=120s lecture=62be0bcc-90ee-4162-ba68-624e24330204
+window 2026-10-25T23:13:48.7550000+00:00 .. 2026-10-25T23:15:48.7550000+00:00
+
+mutations sent (steady)      : 6425  (53.5/s cluster-wide)
+msgs received per client/s   : 4.07
+updates received per client/s: 3.97
+bytes received per client/s  : 55776.42
+total bytes received/s       : 27888208
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 140  p95 251  p99 264  max 324
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  11.6 peak=  19.1
+  globalclass-core-api-3           n= 59 mean=   4.9 peak=   7.5
+  globalclass-core-api-4           n= 59 mean=  11.6 peak=  40.7
+  globalclass-core-api-5           n= 59 mean=   5.5 peak=   8.8
+  globalclass-k6                   n= 59 mean=  65.7 peak= 129.5
+  globalclass-minio-1              n= 59 mean=   1.0 peak=   6.2
+  globalclass-postgres-1           n= 59 mean=   8.9 peak=  46.6
+  globalclass-redis-1              n= 59 mean=   2.4 peak=   5.9
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 168
+  core-api-4: 167
+  core-api-5: 165
+
+Redis (since RESETSTAT):
+  total_commands_processed:159084
+  total_net_output_bytes:62082961
+  cmdstat_hgetall:calls=66,usec=63295,usec_per_call=959.02,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=16923,usec=840366,usec_per_call=49.66,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=601,usec=5652,usec_per_call=9.40,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=7798,usec=19559,usec_per_call=2.51,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=7298,usec=29807,usec_per_call=4.08,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=7298,usec=36627,usec_per_call=5.02,rejected_calls=0,failed_calls=0

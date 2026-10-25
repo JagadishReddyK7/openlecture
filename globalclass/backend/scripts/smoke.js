@@ -44,10 +44,11 @@ function openQA(lectureId, token) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${lectureId}&token=${token}`);
     ws.updates = [];
+    ws.errors = [];
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw);
       if (msg.type === 'QUESTIONS_UPDATE') ws.updates.push(msg);
-      if (msg.type === 'ERROR') console.log('  ws error:', msg.message);
+      if (msg.type === 'ERROR') { ws.errors.push(msg.message); console.log('  ws error:', msg.message); }
     });
     ws.on('open', () => resolve(ws));
     ws.on('error', reject);
@@ -115,6 +116,18 @@ async function main() {
   const last = w1.updates.at(-1).questions.find((q) => q.id === qid);
   check('duplicate vote rejected', last.vote_count === 1, `vote_count=${last.vote_count}`);
 
+  // A vote for a question that doesn't exist must be refused. It used to be
+  // buffered anyway, and its dangling foreign key then failed every flush
+  // of the lecture (checked below: the data must still reach Postgres).
+  w2.send(JSON.stringify({ type: 'VOTE', questionId: '00000000-0000-4000-8000-000000000000' }));
+  await sleep(500);
+  check('vote on unknown question rejected', w2.errors.includes('Question not found'));
+
+  // Instructor answers it: it leaves the ranked list for the answered list
+  wi.send(JSON.stringify({ type: 'MARK_ANSWERED', questionId: qid }));
+  const moved = (u) => u.answered?.some((q) => q.id === qid && q.is_answered) && !u.questions.some((q) => q.id === qid);
+  check('answered question moves to the answered list', !!(await waitFor(w1, moved)));
+
   // Cross-instance fan-out: with 3 core-api replicas, 12 more sockets are
   // spread over all of them by nginx, so every one receiving the update
   // means the Redis Pub/Sub relay works between instances.
@@ -128,13 +141,17 @@ async function main() {
   check('fan-out reaches all 12 extra sockets', got.every(Boolean), `${got.filter(Boolean).length}/12`);
   extra.forEach((w) => w.close());
 
-  console.log('  waiting 6 s for the write-behind flush...');
-  await sleep(6000);
+  // Last socket closes -> final flush to Postgres, then the Redis buffer is
+  // deleted. The REST read below therefore comes from Postgres, not Redis.
+  [w1, w2, wi].forEach((w) => w.close());
+  await sleep(2000);
   const rest = await api('GET', `/api/lectures/${lectureId}/questions`, null, s1);
   const persisted = rest.data.find((q) => q.id === qid);
-  check('question readable via REST', !!persisted);
+  check('question persisted to Postgres with its vote and answered flag',
+    !!persisted && persisted.vote_count === 1 && persisted.is_answered === true,
+    persisted ? `votes=${persisted.vote_count} answered=${persisted.is_answered}` : 'missing');
+  check('both questions persisted', rest.data.length === 2, `rows=${rest.data.length}`);
 
-  [w1, w2, wi].forEach((w) => w.close());
   const end = await api('POST', `/api/stream/end/${lectureId}`, null, instructor);
   check('stream ended by owner', end.status === 200, `status=${end.status}`);
 
