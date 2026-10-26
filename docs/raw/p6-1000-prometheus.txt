@@ -1,0 +1,23 @@
+window 2026-10-26T18:56:56.367Z .. 2026-10-26T18:58:56.367Z (120s)
+
+Q&A mutations/s (all instances)          104.4
+Q&A broadcasts published/s               3.96
+Fan-out messages/s to sockets            3960
+Sockets (end of window)                  1000
+Broadcast payload p50 (bytes)            15000
+Broadcast payload mean (bytes)           13721
+Flushes with changes in window           24
+Flush duration mean (ms)                 49.0
+Flush duration p95 (ms, bucketed)        99
+Rows flushed/s: votes                    104.3
+Rows flushed/s: questions                0.00
+Tickets issued in window                 0
+Messages per socket per second           3.96
+
+Per instance:
+  core-api          45afc17b0079-de268113  cpu  12.4 %   event-loop lag p99 (max)   42.0 ms   sockets 331
+  core-api          98faa2f668db-c7906e5a  cpu  10.4 %   event-loop lag p99 (max)   36.7 ms   sockets 333
+  core-api          ff89616cfed5-b3b63dd3  cpu  12.2 %   event-loop lag p99 (max)   39.5 ms   sockets 336
+  streaming-engine  cf689d1a6393           cpu   0.5 %   event-loop lag p99 (max)   14.5 ms
+  streaming-engine  e35c4a85769a           cpu   0.5 %   event-loop lag p99 (max)   15.6 ms
+  streaming-engine  f971157db9d2           cpu   0.5 %   event-loop lag p99 (max)   15.0 ms

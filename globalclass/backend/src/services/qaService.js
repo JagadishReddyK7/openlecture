@@ -5,6 +5,7 @@ import redis from '../config/redis.js';
 import { rank, liveIndex } from './rankingStrategy.js';
 import { v4 as uuidv4 } from 'uuid';
 import { verKey, leaseKey, sentKey, snapKey } from './broadcaster.js';
+import { flushDuration, flushRows } from '../metrics.js';
 
 // Redis key helpers
 const liveQKey  = (id) => `qa:live:q:${id}`;       // Hash: questionId → JSON
@@ -447,6 +448,9 @@ export async function flushToDB(lectureId) {
 
   const stats = { questions: questions.length, votes: votes.length, ms: Date.now() - t0 };
   console.log(`[Q&A Flush] ${lectureId}: ${stats.questions} questions, ${stats.votes} votes in ${stats.ms} ms`);
+  flushDuration.observe(stats.ms / 1000);
+  flushRows.inc({ table: 'questions' }, stats.questions);
+  flushRows.inc({ table: 'votes' }, stats.votes);
   return stats;
 }
 

@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import lectureRoutes from './routes/lectures.js';
 import questionRoutes from './routes/questions.js';
 import qaRoutes from './routes/qa.js';
+import { metricsHandler } from './metrics.js';
 
 const app = express();
 
@@ -21,5 +22,7 @@ app.use('/api/lectures', questionRoutes);  // /api/lectures/:id/questions
 app.use('/api/qa', qaRoutes);              // /api/qa/ticket
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'core-api' }));
+// Prometheus scrape target, per instance; nginx does not route /metrics
+app.get('/metrics', metricsHandler);
 
 export default app;

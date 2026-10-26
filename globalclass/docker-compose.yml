@@ -145,6 +145,37 @@ services:
       - core-api
       - streaming-engine
 
+  # ── Observability (optional) ──────────────────────────────────
+  # docker compose --profile observability up -d --scale core-api=3 --scale streaming-engine=3
+  # Prometheus: http://localhost:9090   Grafana: http://localhost:3001 (dashboard "OpenLecture")
+  # Both services expose /metrics on their own port; nginx does not route it.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - core-api
+      - streaming-engine
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    profiles: ["observability"]
+    environment:
+      # Local demo only: anyone who can reach :3001 can view the dashboard
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/openlecture.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   redis_data:

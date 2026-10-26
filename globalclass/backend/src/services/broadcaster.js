@@ -86,8 +86,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *                                      data AFTER seq was read (caller passes seq)
  * @param {number}   [opts.windowMs]    coalescing window
  * @param {string}   [opts.instanceId]  unique per process
+ * @param {Function} [opts.onPublish]   (payloadBytes) => void, after each publish (metrics)
  */
-export function createBroadcaster({ redis, buildPayload, windowMs = 250, instanceId = crypto.randomUUID() }) {
+export function createBroadcaster({ redis, buildPayload, windowMs = 250, instanceId = crypto.randomUUID(), onPublish = () => {} }) {
   const running = new Set();   // lectures this process is broadcasting for
   const rerun = new Set();     // lease (re)acquired while a loop was finishing
 
@@ -106,6 +107,7 @@ export function createBroadcaster({ redis, buildPayload, windowMs = 250, instanc
           arguments: [instanceId, String(seq), payload, channel(lectureId)],
         });
         if (pub === -1) return;
+        if (pub === 1) onPublish(Buffer.byteLength(payload));
         await sleep(windowMs);
         const next = await redis.eval(RELEASE_OR_CONTINUE, {
           keys: [leaseKey(lectureId), verKey(lectureId)],

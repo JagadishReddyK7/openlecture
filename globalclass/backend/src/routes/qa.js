@@ -2,6 +2,7 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import accessService from '../services/accessService.js';
+import { tickets } from '../metrics.js';
 
 const router = express.Router();
 
@@ -13,11 +14,17 @@ router.post('/ticket', authenticate, async (req, res) => {
   const { lectureId } = req.body || {};
   try {
     const access = await accessService.checkAccess(lectureId, req.user);
-    if (!access.exists) return res.status(404).json({ error: 'Lecture not found' });
+    if (!access.exists) {
+      tickets.inc({ result: 'not_found' });
+      return res.status(404).json({ error: 'Lecture not found' });
+    }
     if (!access.allowed) {
+      tickets.inc({ result: 'forbidden' });
       return res.status(403).json({ error: 'Enroll in this lecture to join its Q&A', code: 'NOT_ENROLLED' });
     }
-    res.json(await accessService.issueTicket(lectureId, req.user, access.isOwner));
+    const issued = await accessService.issueTicket(lectureId, req.user, access.isOwner);
+    tickets.inc({ result: 'issued' });
+    res.json(issued);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

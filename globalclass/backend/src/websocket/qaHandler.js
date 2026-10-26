@@ -21,8 +21,10 @@ import { createRedisClient } from '../config/redis.js';
 import redis from '../config/redis.js';
 import { createBroadcaster, channel as pubChannel } from '../services/broadcaster.js';
 import { instanceId } from '../config/instance.js';
+import * as metrics from '../metrics.js';
 
-const PING_EVERY_MS = 30_000;   // a socket that misses one ping round is dropped
+const PING_EVERY_MS = 30_000;
+const KNOWN_TYPES = new Set(['SUBMIT_QUESTION', 'VOTE', 'MARK_ANSWERED', 'SET_STRATEGY']);   // a socket that misses one ping round is dropped
 
 // lectureId -> Set of WebSocket clients (local to this instance only)
 const rooms = new Map();
@@ -50,9 +52,11 @@ async function ensureSubscribed(lectureId) {
     // Received a broadcast from any Core API instance (including ourselves).
     // Relay it to every local WebSocket client in this room.
     const room = rooms.get(lectureId);
+    let sent = 0;
     room?.forEach((client) => {
-      if (client.readyState === 1) client.send(message);
+      if (client.readyState === 1) { client.send(message); sent++; }
     });
+    metrics.fanoutMessages.inc(sent);
   });
 
   subscribedChannels.add(channel);
@@ -89,11 +93,13 @@ const broadcaster = createBroadcaster({
   instanceId,
   buildPayload: buildUpdate,
   windowMs: Number(process.env.QA_BROADCAST_WINDOW_MS || 250),
+  onPublish: (bytes) => { metrics.broadcasts.inc(); metrics.broadcastBytes.observe(bytes); },
 });
 
 // For mutations that don't come over the socket (REST routes): bump seq and
 // let the broadcaster publish, exactly like a WebSocket mutation.
 export function notifyMutation(lectureId) {
+  metrics.mutations.inc({ type: 'REST' });
   return broadcaster.onMutation(lectureId);
 }
 
@@ -161,6 +167,7 @@ export function initQAWebSocket() {
       rooms.get(lectureId).add(ws);
       ws.lectureId = lectureId;
       ws.inRoom = true;
+      metrics.wsConnections.inc();
 
       // Count this client lecture-wide (all instances), then subscribe this
       // instance to the lecture's broadcast channel
@@ -193,9 +200,13 @@ export function initQAWebSocket() {
         // publish (now, or at the end of the current window). The sender gets
         // seq in an ACK, so it can tell which broadcast first includes its change.
         const seq = await broadcaster.onMutation(lectureId);
+        metrics.mutations.inc({ type: msg.type });
         ws.send(JSON.stringify({ type: 'ACK', clientMsgId: msg.clientMsgId, seq }));
       } catch (err) {
         if (err.message !== 'Already voted') console.error('[Q&A WebSocket Message Error]:', err);
+        // Label only known types: msg.type is client input, and an open label
+        // set would let any client create unbounded time series
+        metrics.mutationErrors.inc({ type: KNOWN_TYPES.has(msg.type) ? msg.type : 'other' });
         ws.send(JSON.stringify({ type: 'ERROR', clientMsgId: msg.clientMsgId, message: err.message }));
       }
     });
@@ -206,6 +217,7 @@ export function initQAWebSocket() {
       await ready.catch(() => {});
 
       if (ws.inRoom) {
+        metrics.wsConnections.dec();
         const room = rooms.get(lectureId);
         room?.delete(ws);
         // Last client on THIS instance: stop listening to the channel, nothing more.
@@ -248,6 +260,7 @@ export function initQAWebSocket() {
       try {
         if (!(await qaService.tryAcquireFlushLock(lectureId))) continue;
         const { live, removed } = await qaService.pruneDead(lectureId);
+        if (removed > 0) metrics.deadInstancesPruned.inc(removed);
         if (removed > 0) console.log(`[Q&A Sweep] ${lectureId}: dropped presence of ${removed} dead instance(s), ${live} sockets left`);
         if (live <= 0) await qaService.finalFlushAndClean(lectureId);
         else await qaService.flushToDB(lectureId);

@@ -654,3 +654,79 @@ From the P4-1000 `docker stats` samples (first sample before any socket vs stead
 | nginx (1,000 sockets) | 11.2 MiB | 42.7 MiB | ≈ 32 KB |
 
 Raw: `raw/p5-probe.txt`, `raw/p4-1000-stats.csv`.
+
+---
+
+## P6 — Observability (2026-10-27)
+
+What was added:
+- `prom-client` `/metrics` on both services, served on each instance's own port.
+  nginx does not route it: `GET http://localhost/metrics` returns 404.
+- An optional `observability` compose profile with Prometheus v2.55.1 and Grafana 11.3.0.
+  Prometheus finds every scaled replica through Docker DNS (`dns_sd_configs`, type A).
+  Grafana is provisioned with a 12-panel "OpenLecture" dashboard.
+
+```powershell
+docker compose --profile observability up -d --build --scale core-api=3 --scale streaming-engine=3
+docker compose restart api-gateway
+# Prometheus http://localhost:9090   Grafana http://localhost:3001
+```
+
+| Service | Metrics |
+|---|---|
+| core-api | `qa_ws_connections`, `qa_mutations_total{type}`, `qa_mutation_errors_total{type}` (label limited to the 4 known types: it comes from client input), `qa_broadcasts_total`, `qa_broadcast_payload_bytes`, `qa_fanout_messages_total`, `qa_tickets_total{result}`, `qa_flush_duration_seconds`, `qa_flush_rows_total{table}`, `qa_dead_instance_presence_pruned_total`, plus Node defaults (CPU, memory, event-loop lag, GC) |
+| streaming-engine | `stream_join_duration_seconds{outcome}` (webrtc / hls / not_live / not_enrolled / error), `stream_tier_assignments_total{tier}`, plus Node defaults |
+
+Every series carries `instance_id`, which matches core-api's presence and broadcast-lease
+identity.
+
+Verified: all 6 replicas `up` as scrape targets; the dashboard is provisioned; the smoke
+test passes; a k6 `SMOKE` run shows up in the join histogram and tier counter.
+
+### The P2 result, seen from the server
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 1000 -Tag p6-1000
+cd backend; node scripts/prom-report.js <steady start> <steady end>
+```
+
+The P1 workload at 1000 clients. Prometheus over the same 120 s steady window, next to
+k6's own numbers:
+
+| | Prometheus (server side) | k6 (client side) |
+|---|---:|---:|
+| Mutations/s | 104.4 | 104.3 sent |
+| Broadcasts published/s, whole cluster | **3.96** | – |
+| Messages per socket per second | 3.96 (3,960 fan-out msgs/s ÷ 1,000 sockets) | 3.97 updates/s per client |
+| Broadcast payload | mean 13.7 KB, p50 ≤ 15 KB (bucket) | 13.4 KB mean message (ACKs included) |
+| Votes flushed to Postgres/s | 104.3 | 104.3 sent |
+| Flushes with changes | 24 in 120 s, mean 49 ms, p95 ≤ 100 ms (bucket) | – |
+| core-api CPU (process) | 10.4 / 12.2 / 12.4 % | – |
+| core-api event-loop lag p99, worst in window | 36.7 / 39.5 / 42.0 ms | – |
+| Sockets per instance | 331 / 333 / 336 | – |
+
+This is the coalescing claim, measured inside the system: 104 mutations/s go in, the
+whole cluster publishes ~4 broadcasts/s, and each socket receives ~4 messages/s. The
+server-side counts agree with the client-side ones to within 0.3 %. Every vote reached a
+flush (104.3 rows/s).
+
+The 37–42 ms event-loop lag p99 is new information: k6 can't see it, and it puts a floor
+under how far one instance can be pushed. It is a worst value over the window, from
+`nodejs_eventloop_lag_p99_seconds`.
+
+### Overhead of collecting metrics
+
+Same workload, `docker stats`, with and without metrics:
+
+| 1000 clients | P4-1000 (no metrics) | P6-1000 (metrics + 5 s scrapes) |
+|---|---:|---:|
+| core-api CPU (each, mean) | 10.7 / 10.9 / 10.9 % | 10.0 / 12.0 / 12.2 % |
+| nginx CPU (mean) | 27.3 % | 28.1 % |
+| Update latency p95 | 258 ms | 259 ms |
+| Messages / bytes per client | 4.08 /s · 54.5 KB/s | 4.07 /s · 54.4 KB/s |
+
+core-api averages 11.4 % with metrics against 10.8 % without. The difference is no
+larger than the spread between instances within one run, so no overhead is
+distinguishable at this load.
+
+Raw: `raw/p6-1000-*`, `raw/p6-1000-prometheus.txt`.

@@ -12,6 +12,7 @@ import express from 'express';
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import pool from '../config/db.js';
+import { joinDuration, tierAssignments } from '../metrics.js';
 import { startHLSEgress, stopHLSEgress, getHLSUrl } from '../services/egressService.js';
 import {
   WEBRTC_PRIORITY_LIMIT, assignTier, releaseSlot, clearSlots, slotsInUse,
@@ -119,6 +120,7 @@ router.post('/start/:lectureId', authenticate, requireRole('instructor'), async 
 // ---------------------------------------------------------------------------
 router.post('/join/:lectureId', authenticate, async (req, res) => {
   const { lectureId } = req.params;
+  const endTimer = joinDuration.startTimer();
   try {
     // Only the lecture's instructor or an enrolled student may watch. The
     // check rides on the query join already made, so it costs no extra
@@ -135,9 +137,11 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
     );
 
     if (!result.rows[0]) {
+      endTimer({ outcome: 'not_live' });
       return res.status(400).json({ error: 'Lecture is not live', code: 'NOT_LIVE' });
     }
     if (!result.rows[0].is_owner && !result.rows[0].is_enrolled) {
+      endTimer({ outcome: 'not_enrolled' });
       return res.status(403).json({ error: 'Enroll in this lecture to watch it', code: 'NOT_ENROLLED' });
     }
 
@@ -157,6 +161,8 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
       }
 
       if (hlsUrl) {
+        tierAssignments.inc({ tier: 'hls' });
+        endTimer({ outcome: 'hls' });
         return res.json({
           lectureId,
           role: 'subscriber',
@@ -179,6 +185,8 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
       false // canPublish = false for students
     );
 
+    tierAssignments.inc({ tier: 'webrtc' });
+    endTimer({ outcome: 'webrtc' });
     res.json({
       lectureId,
       role: 'subscriber',
@@ -192,6 +200,7 @@ router.post('/join/:lectureId', authenticate, async (req, res) => {
     });
   } catch (err) {
     console.error('[Stream] joinSession error:', err);
+    endTimer({ outcome: 'error' });
     res.status(500).json({ error: 'Failed to join stream' });
   }
 });
