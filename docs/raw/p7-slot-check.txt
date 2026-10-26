@@ -1,0 +1,6 @@
+# node scripts/slot-check.js  (2026-10-26T19:07:21Z, 3 x streaming-engine, WEBRTC_PRIORITY_LIMIT=500)
+registering and enrolling 1000 students...
+1000 simultaneous joins...
+webrtc 500  hls 500  failed 0  (burst took 1123 ms)
+slots in Redis: 500 / limit 500
+SLOTS OK

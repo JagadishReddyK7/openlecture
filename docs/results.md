@@ -730,3 +730,24 @@ larger than the spread between instances within one run, so no overhead is
 distinguishable at this load.
 
 Raw: `raw/p6-1000-*`, `raw/p6-1000-prometheus.txt`.
+
+---
+
+## P7 — WebRTC slot cap, re-verified (2026-10-27)
+
+The atomic slot allocation predates this work. Its result was first reported in that
+commit's message. It was re-run on the current code before the README cites it.
+
+```powershell
+cd backend; node scripts/slot-check.js     # 1,000 enrolled students, all joining at once
+```
+
+3 × streaming-engine, `WEBRTC_PRIORITY_LIMIT=500`:
+
+| | Value |
+|---|---|
+| WebRTC / HLS / failed | **500 / 500 / 0** |
+| Slots held in Redis after the burst | 500 / 500 |
+| Burst duration (1,000 concurrent requests) | 1,123 ms |
+
+Raw: `raw/p7-slot-check.txt`.

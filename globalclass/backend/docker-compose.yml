@@ -1,8 +1,0 @@
-# DEPRECATED — This file is superseded by globalclass/docker-compose.yml
-#
-# This was the single-service compose file when the backend was a monolith.
-# After the microservices refactor, use the root-level docker-compose.yml which
-# defines all 5 services: postgres, redis, core-api, streaming-engine, api-gateway.
-#
-# From the globalclass/ directory, run:
-#   docker-compose up --build
