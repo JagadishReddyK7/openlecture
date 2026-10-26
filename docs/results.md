@@ -621,3 +621,36 @@ that was ~14,000 single-row upserts per lecture every 5 s.
 `smoke.js` 21/21, `access-check.js` 23/23, `ranking-check.js` all pass.
 
 Raw: `raw/p4-*`, `raw/p3-chaos-*`, `raw/p3-tail-loss.txt`.
+
+---
+
+## P5 — Unit costs for the capacity estimate (2026-10-26)
+
+New measurements used by [capacity.md](capacity.md). The rest of that document
+cites earlier phases.
+
+```powershell
+docker compose exec -T core-api node scripts/capacity-probe.js
+```
+
+A throwaway lecture against the compose Redis (AOF on), with its keys deleted afterwards:
+
+| | Value |
+|---|---|
+| Redis commands per vote, including Lua inner commands and the broadcaster's mark-dirty | 11.0, in 3 client round trips |
+| Redis commands per question | 11.0, in 3 round trips |
+| Live lecture memory, all keys (`MEMORY USAGE`) at 201 q / 2,000 votes | 650 KB (234 KB of it unflushed-change sets) |
+| … at 501 q / 10,000 votes | 2,971 KB (1,243 KB change sets) |
+| … at 1,001 q / 20,000 votes | 5,980 KB (2,486 KB change sets); **3.4 MB** without them |
+
+In the probe nothing was flushed, so the change sets held every write. In a running
+lecture they are emptied every 5 s and hold only the last few seconds of changes.
+
+From the P4-1000 `docker stats` samples (first sample before any socket vs steady-window mean):
+
+| | Before sockets | 333–335 sockets each | Per socket |
+|---|---:|---:|---:|
+| core-api (×3) | 44.7–50.8 MiB | 80.1–82.4 MiB | ≈ 100 KB |
+| nginx (1,000 sockets) | 11.2 MiB | 42.7 MiB | ≈ 32 KB |
+
+Raw: `raw/p5-probe.txt`, `raw/p4-1000-stats.csv`.

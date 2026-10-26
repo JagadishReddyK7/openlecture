@@ -1,0 +1,10 @@
+# docker compose exec -T core-api node scripts/capacity-probe.js  (2026-10-26T18:27:46Z, redis:7-alpine, AOF on)
+Redis commands per question: 11.0  (client round trips: 3 = HLEN, MULTI/EXEC, mark-dirty EVAL)
+Redis commands per vote:     11.0  (client round trips: 3 = HLEN, vote EVAL, mark-dirty EVAL)
+
+Redis memory of one live lecture (MEMORY USAGE, all its keys):
+  201 questions, 2000 votes    11 keys   649.9 KB  (of which unflushed-change sets 234.0 KB)
+  501 questions, 10000 votes   11 keys  2970.5 KB  (of which unflushed-change sets 1243.2 KB)
+  1001 questions, 20000 votes  11 keys  5979.7 KB  (of which unflushed-change sets 2486.1 KB)
+
+  steady state at 1001 questions, 20000 votes (change sets excluded): 3493.6 KB
