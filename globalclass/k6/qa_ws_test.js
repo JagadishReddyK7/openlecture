@@ -44,7 +44,9 @@ const UPDATE_PREFIX = '{"type":"QUESTIONS_UPDATE","seq":';
 const SEQ_RE = /"seq":(\d+)/;
 
 const updateLatency = new Trend('qa_update_latency', true);
-const connectTime = new Trend('qa_connect_time', true);
+const connectTime = new Trend('qa_connect_time', true);   // WebSocket open only
+const ticketTime = new Trend('qa_ticket_time', true);     // POST /api/qa/ticket
+const ticketErrors = new Counter('qa_ticket_errors');
 const msgs = new Counter('qa_msgs');
 const bytes = new Counter('qa_bytes');
 const updateMsgs = new Counter('qa_update_msgs');
@@ -130,8 +132,13 @@ export default function (data) {
 }
 
 function run(data, idx, isAsker, closeAt, inSteady) {
+  // One-time ticket (JWT in the header), then the socket with ?ticket=
+  const tr = http.post(`${BASE}/api/qa/ticket`, JSON.stringify({ lectureId: data.lectureId }),
+    { ...auth(data.tokens[idx]), tags: { name: 'qa_ticket' } });
+  ticketTime.add(tr.timings.duration);
+  if (tr.status !== 200) { ticketErrors.add(1); return; }
   const t0 = Date.now();
-  const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${data.lectureId}&token=${data.tokens[idx]}`);
+  const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${data.lectureId}&ticket=${encodeURIComponent(tr.json().ticket)}`);
 
   let questions = [];
   let total = 0;               // questions in the lecture (the list itself may be capped)

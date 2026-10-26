@@ -1,0 +1,81 @@
+docker : time="2026-10-26T17:05:55Z" level=info msg="\n≡ƒÜÇ Setup: creating test users and lecture...\n" source=console
+At line:1 char:398
++ ... Out-Null }; docker run --rm -i --name globalclass-k6 --memory 5g --ne ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-10-2... source=console:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+time="2026-10-26T17:05:55Z" level=info msg="≡ƒôÜ Lecture created: 7ac6c829-0769-4218-85e0-3ccf7011bb17" source=console
+time="2026-10-26T17:05:55Z" level=info msg="≡ƒÄ¼ Stream started. HLS URL: 
+https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8" source=console
+time="2026-10-26T17:06:05Z" level=info msg="≡ƒæÑ Registered 200 test students\n" source=console
+time="2026-10-26T17:14:09Z" level=info msg="\n≡ƒº╣ Teardown: ending stream for lecture 
+7ac6c829-0769-4218-85e0-3ccf7011bb17...\n" source=console
+time="2026-10-26T17:14:10Z" level=info msg="\nΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓ
+òÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
+\nΓòæ  ≡ƒôè  Load Test Complete                                      Γòæ\nΓòæ                                          
+                    Γòæ\nΓòæ  Lecture ID : 7ac6c829-0769-4218-85e0-3ccf7011bb17            Γòæ\nΓòæ  Students   : 200  
+                                        Γòæ\nΓòæ                                                              Γòæ\nΓòæ 
+ MONITORING TIPS:                                            Γòæ\nΓòæ  ΓÇó docker stats           ΓÇö live CPU/memory 
+per container    Γòæ\nΓòæ  ΓÇó docker logs -f <svc>   ΓÇö watch for errors in real time    Γòæ\nΓòæ                    
+                                          Γòæ\nΓòæ  BOTTLENECK IDENTIFICATION:                                  
+Γòæ\nΓòæ  ΓÇó High join_latency p95  ΓåÆ streaming-engine or PostgreSQL   Γòæ\nΓòæ  ΓÇó High segment_latency   ΓåÆ 
+MinIO or Nginx                   Γòæ\nΓòæ  ΓÇó Many join_errors       ΓåÆ Node.js connection pool exhaust  Γòæ\nΓòæ  
+ΓÇó http_req_failed > 10%  ΓåÆ Nginx worker_connections limit   Γòæ\nΓòÜΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò
+ÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓ
+òÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓò¥\n" source=console
+
+
+  Γûê THRESHOLDS 
+
+    http_req_duration
+    Γ£ô 'p(95)<500' p(95)=6.78ms
+
+    http_req_failed
+    Γ£ô 'rate<0.01' rate=0.00%
+
+    join_latency
+    Γ£ô 'p(95)<1000' p(95)=12.88ms
+
+
+  Γûê TOTAL RESULTS 
+
+    checks_total.......: 623607  1260.528201/s
+    checks_succeeded...: 100.00% 623607 out of 623607
+    checks_failed......: 0.00%   0 out of 623607
+
+    Γ£ô instructor registered
+    Γ£ô instructor logged in
+    Γ£ô lecture created
+    Γ£ô stream started
+    Γ£ô core-api healthy
+    Γ£ô join status 200
+    Γ£ô has viewer tier
+    Γ£ô status poll ok
+    Γ£ô catalog loaded
+    Γ£ô hls-status ok
+    Γ£ô stream ended
+
+    CUSTOM
+    early_stop_rate................: 19.95% 13978 out of 70041
+    join_latency...................: avg=5.84ms min=831.4┬╡s  med=3.51ms p(90)=8.42ms p(95)=12.88ms p(99)=49.7ms max=524.46ms
+    webrtc_tier_viewers............: 70041  141.577397/s
+
+    HTTP
+    http_req_duration..............: avg=3ms    min=-33756ns med=1.7ms  p(90)=4.45ms p(95)=6.78ms  p(99)=24.8ms max=973.87ms
+      { expected_response:true }...: avg=3ms    min=-33756ns med=1.7ms  p(90)=4.45ms p(95)=6.78ms  p(99)=24.8ms max=973.87ms
+    http_req_failed................: 0.00%  0 out of 554166
+    http_reqs......................: 554166 1120.163614/s
+
+    EXECUTION
+    iteration_duration.............: avg=2.97s  min=605.27ms med=3.17s  p(90)=4.68s  p(95)=4.76s   p(99)=4.82s  max=5.23s   
+    iterations.....................: 70041  141.577397/s
+    vus............................: 0      min=0              max=999 
+    vus_max........................: 1000   min=1000           max=1000
+
+    NETWORK
+    data_received..................: 600 MB 1.2 MB/s
+    data_sent......................: 208 MB 419 kB/s
+
+
+

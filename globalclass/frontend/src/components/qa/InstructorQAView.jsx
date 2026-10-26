@@ -20,7 +20,7 @@ export default function InstructorQAView({ lectureId, token }) {
   const [strategy, setStrategy] = useState('default');
   const [tab, setTab] = useState('unanswered');
 
-  const { send } = useQAWebSocket(lectureId, token, (msg) => {
+  const { send, denied } = useQAWebSocket(lectureId, token, (msg) => {
     if (msg.type === 'QUESTIONS_UPDATE') {
       setQuestions(msg.questions);
       setAnswered(msg.answered || []);
@@ -28,6 +28,14 @@ export default function InstructorQAView({ lectureId, token }) {
       if (msg.strategy) setStrategy(msg.strategy);
     }
   });
+
+  if (denied) {
+    return (
+      <div className="qa-panel">
+        <div className="qa-empty">Only this lecture's instructor can moderate its Q&amp;A.</div>
+      </div>
+    );
+  }
 
   function markAnswered(questionId) {
     send({ type: 'MARK_ANSWERED', questionId });

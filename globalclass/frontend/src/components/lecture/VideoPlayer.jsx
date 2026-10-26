@@ -88,7 +88,7 @@ function LectureScreenView() {
 // ── Main VideoPlayer ─────────────────────────────────────────────────────────
 export default function VideoPlayer({ lectureId, token: _authToken }) {
   const [session, setSession]       = useState(null);
-  const [status, setStatus]         = useState('waiting'); // waiting | live | ended | fallback
+  const [status, setStatus]         = useState('waiting'); // waiting | live | ended | fallback | forbidden
   const [lectureInfo, setLectureInfo] = useState(null);
   const [fallbackHlsUrl, setFallbackHlsUrl] = useState(null);
   const pollRef    = useRef(null);
@@ -124,6 +124,8 @@ export default function VideoPlayer({ lectureId, token: _authToken }) {
         if (err.response?.data?.code === 'NOT_LIVE') {
           setStatus('waiting');
           pollRef.current = setTimeout(tryJoin, 4000);
+        } else if (err.response?.data?.code === 'NOT_ENROLLED') {
+          setStatus('forbidden');
         } else {
           setStatus('ended');
         }
@@ -176,6 +178,21 @@ export default function VideoPlayer({ lectureId, token: _authToken }) {
   }
 
   // ── Ended ──────────────────────────────────────────────────────────────────
+  if (status === 'forbidden') {
+    return (
+      <div style={styles.container}>
+        <div style={styles.videoBox}>
+          <div style={styles.overlay}>
+            <div style={{ fontSize: 48 }}>🔒</div>
+            <p style={{ fontSize: 15, opacity: 0.8, marginTop: 12 }}>
+              Enroll in this lecture from the catalog to watch it.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'ended') {
     return (
       <div style={styles.container}>

@@ -8,6 +8,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import lectureRoutes from './routes/lectures.js';
 import questionRoutes from './routes/questions.js';
+import qaRoutes from './routes/qa.js';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/lectures', lectureRoutes);
 app.use('/api/lectures', questionRoutes);  // /api/lectures/:id/questions
+app.use('/api/qa', qaRoutes);              // /api/qa/ticket
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'core-api' }));
 

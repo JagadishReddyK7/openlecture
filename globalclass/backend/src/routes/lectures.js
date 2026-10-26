@@ -1,6 +1,7 @@
 import express from 'express';
 import pool from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import accessService from '../services/accessService.js';
 
 const router = express.Router();
 
@@ -72,6 +73,8 @@ router.post('/:id/enroll', authenticate, requireRole('student'), async (req, res
       `INSERT INTO enrollments (student_id, lecture_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [req.user.id, req.params.id]
     );
+    // Warm the access cache so the student's first Q&A ticket needs no DB query
+    await accessService.rememberEnrollment(req.params.id, req.user.id);
     res.json({ message: 'Enrolled successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });

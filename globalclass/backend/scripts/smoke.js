@@ -39,10 +39,13 @@ async function user(role, n) {
   return data.token;
 }
 
-// Opens a Q&A socket and records every QUESTIONS_UPDATE it receives.
-function openQA(lectureId, token) {
+// Opens a Q&A socket (ticket first, see POST /api/qa/ticket) and records
+// every QUESTIONS_UPDATE it receives.
+async function openQA(lectureId, token) {
+  const t = await api('POST', '/api/qa/ticket', { lectureId }, token);
+  if (t.status !== 200) throw new Error(`ticket refused: ${t.status} ${JSON.stringify(t.data)}`);
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${lectureId}&token=${token}`);
+    const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${lectureId}&ticket=${encodeURIComponent(t.data.ticket)}`);
     ws.updates = [];
     ws.errors = [];
     ws.on('message', (raw) => {

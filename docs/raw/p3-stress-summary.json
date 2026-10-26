@@ -1,0 +1,298 @@
+{
+  "metrics": {
+    "http_req_connecting": {
+      "avg": 0.0005849745836937719,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "p(99)": 0,
+      "max": 41.716052
+    },
+    "iteration_duration": {
+      "min": 605.65349,
+      "med": 3175.733793,
+      "p(90)": 4682.2561198,
+      "p(95)": 4758.9515169,
+      "p(99)": 4817.54092598,
+      "max": 5251.387735,
+      "avg": 2976.4637127370756
+    },
+    "vus_max": {
+      "value": 1000,
+      "min": 1000,
+      "max": 1000
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 554880,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "vus": {
+      "max": 1000,
+      "value": 0,
+      "min": 0
+    },
+    "group_duration": {
+      "min": 0.439536,
+      "med": 3.589325,
+      "p(90)": 3515.6001078,
+      "p(95)": 4021.7417024,
+      "p(99)": 4525.011924439999,
+      "max": 4641.018657,
+      "avg": 816.3173243712527
+    },
+    "http_req_duration{expected_response:true}": {
+      "max": 1032.578079,
+      "avg": 2.6286182739674255,
+      "min": -1.07219,
+      "med": 1.6617060000000001,
+      "p(90)": 4.1890407000000005,
+      "p(95)": 5.808023949999991,
+      "p(99)": 14.992833099999947
+    },
+    "http_req_waiting": {
+      "p(99)": 14.917095149999762,
+      "max": 1032.425571,
+      "avg": 2.5700279628802356,
+      "min": 0,
+      "med": 1.599678,
+      "p(90)": 4.1193318,
+      "p(95)": 5.739046199999975
+    },
+    "data_received": {
+      "count": 593537238,
+      "rate": 1199106.2981175203
+    },
+    "early_stop_rate": {
+      "passes": 13978,
+      "fails": 56125,
+      "value": 0.19939232272513302
+    },
+    "data_sent": {
+      "count": 207748272,
+      "rate": 419707.8892937661
+    },
+    "webrtc_tier_viewers": {
+      "count": 70103,
+      "rate": 141.627084932677
+    },
+    "http_req_duration": {
+      "med": 1.6617060000000001,
+      "p(90)": 4.1890407000000005,
+      "p(95)": 5.808023949999991,
+      "p(99)": 14.992833099999947,
+      "max": 1032.578079,
+      "avg": 2.6286182739674255,
+      "min": -1.07219,
+      "thresholds": {
+        "p(95)<500": false
+      }
+    },
+    "http_req_receiving": {
+      "avg": 0.045816273190600255,
+      "min": -2.079347,
+      "med": 0.03557,
+      "p(90)": 0.079696,
+      "p(95)": 0.102587,
+      "p(99)": 0.16871341999999992,
+      "max": 7.750227
+    },
+    "http_reqs": {
+      "count": 554880,
+      "rate": 1121.0081863464304
+    },
+    "http_req_sending": {
+      "min": 0.0025,
+      "med": 0.010373,
+      "p(90)": 0.01923,
+      "p(95)": 0.028289,
+      "p(99)": 0.05470188999999966,
+      "max": 4.833806,
+      "avg": 0.012774037896482258
+    },
+    "iterations": {
+      "count": 70103,
+      "rate": 141.627084932677
+    },
+    "join_latency": {
+      "p(95)": 10.682838299999998,
+      "p(99)": 28.29931259999997,
+      "max": 396.864701,
+      "avg": 5.062743027573688,
+      "min": 1.06038,
+      "med": 3.578686,
+      "p(90)": 7.7862932,
+      "thresholds": {
+        "p(95)<1000": false
+      }
+    },
+    "http_req_blocked": {
+      "avg": 0.004973100088307209,
+      "min": 0,
+      "med": 0.003944,
+      "p(90)": 0.005836,
+      "p(95)": 0.00711,
+      "p(99)": 0.016937419999999925,
+      "max": 41.778436
+    },
+    "http_req_tls_handshaking": {
+      "max": 0,
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "p(99)": 0
+    },
+    "checks": {
+      "passes": 624383,
+      "fails": 0,
+      "value": 1
+    }
+  },
+  "root_group": {
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {
+      "setup": {
+        "checks": {
+          "instructor registered": {
+            "name": "instructor registered",
+            "path": "::setup::instructor registered",
+            "id": "0bef0ae88b2990d7125fae679d8fe6d1",
+            "passes": 1,
+            "fails": 0
+          },
+          "instructor logged in": {
+            "passes": 1,
+            "fails": 0,
+            "name": "instructor logged in",
+            "path": "::setup::instructor logged in",
+            "id": "6465d96ed100c55dbaf46cebfc6dfb97"
+          },
+          "lecture created": {
+            "name": "lecture created",
+            "path": "::setup::lecture created",
+            "id": "74dd18c8e6e1bc9161ef7d47a47b5b2c",
+            "passes": 1,
+            "fails": 0
+          },
+          "stream started": {
+            "fails": 0,
+            "name": "stream started",
+            "path": "::setup::stream started",
+            "id": "603ac8bbe94153ef59b621da3b88bd98",
+            "passes": 1
+          }
+        },
+        "name": "setup",
+        "path": "::setup",
+        "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+        "groups": {}
+      },
+      "Health Check": {
+        "name": "Health Check",
+        "path": "::Health Check",
+        "id": "167c726a79efe9afd2c220eb9d49c1a2",
+        "groups": {},
+        "checks": {
+          "core-api healthy": {
+            "id": "254e51f2adc3d603eaf5856982671323",
+            "passes": 70103,
+            "fails": 0,
+            "name": "core-api healthy",
+            "path": "::Health Check::core-api healthy"
+          }
+        }
+      },
+      "Join Stream": {
+        "groups": {},
+        "checks": {
+          "join status 200": {
+            "passes": 70103,
+            "fails": 0,
+            "name": "join status 200",
+            "path": "::Join Stream::join status 200",
+            "id": "66f9ee783bc0156b8594a9a4dba27e77"
+          },
+          "has viewer tier": {
+            "name": "has viewer tier",
+            "path": "::Join Stream::has viewer tier",
+            "id": "e4bdc60b79ee741d367a5286f05223a0",
+            "passes": 70103,
+            "fails": 0
+          }
+        },
+        "name": "Join Stream",
+        "path": "::Join Stream",
+        "id": "b4bc1535f2909bcb130250adbb9c34ab"
+      },
+      "Stream Viewing": {
+        "id": "148a2995d35c31acb9531f3f91c9358b",
+        "groups": {},
+        "checks": {
+          "status poll ok": {
+            "name": "status poll ok",
+            "path": "::Stream Viewing::status poll ok",
+            "id": "7592348f8be56955105d5d71e2a16d3b",
+            "passes": 385993,
+            "fails": 0
+          }
+        },
+        "name": "Stream Viewing",
+        "path": "::Stream Viewing"
+      },
+      "Browse Catalog": {
+        "name": "Browse Catalog",
+        "path": "::Browse Catalog",
+        "id": "239196eeab24a66df0816a030b21de64",
+        "groups": {},
+        "checks": {
+          "catalog loaded": {
+            "name": "catalog loaded",
+            "path": "::Browse Catalog::catalog loaded",
+            "id": "e6d7f9f0c0547ec2b5451178303200b9",
+            "passes": 21111,
+            "fails": 0
+          }
+        }
+      },
+      "Quality Switch": {
+        "name": "Quality Switch",
+        "path": "::Quality Switch",
+        "id": "08bc0194a88138631d282706f7bbc132",
+        "groups": {},
+        "checks": {
+          "hls-status ok": {
+            "name": "hls-status ok",
+            "path": "::Quality Switch::hls-status ok",
+            "id": "1b7bc3edfbe131740f768905901cf8f8",
+            "passes": 6965,
+            "fails": 0
+          }
+        }
+      },
+      "teardown": {
+        "checks": {
+          "stream ended": {
+            "name": "stream ended",
+            "path": "::teardown::stream ended",
+            "id": "6b1412c0bf5e1553b36e867c7be012a6",
+            "passes": 1,
+            "fails": 0
+          }
+        },
+        "name": "teardown",
+        "path": "::teardown",
+        "id": "a8a9942382e8ffe2e56ef29e664b8229",
+        "groups": {}
+      }
+    },
+    "checks": {},
+    "name": "",
+    "path": ""
+  }
+}

@@ -120,16 +120,25 @@ router.post('/start/:lectureId', authenticate, requireRole('instructor'), async 
 router.post('/join/:lectureId', authenticate, async (req, res) => {
   const { lectureId } = req.params;
   try {
+    // Only the lecture's instructor or an enrolled student may watch. The
+    // check rides on the query join already made, so it costs no extra
+    // round trip (and needs no cache that could go stale).
     const result = await pool.query(
-      `SELECT l.*, u.name AS instructor_name
+      `SELECT l.*, u.name AS instructor_name,
+              (l.instructor_id = $2) AS is_owner,
+              EXISTS (SELECT 1 FROM enrollments e
+                      WHERE e.lecture_id = l.id AND e.student_id = $2) AS is_enrolled
        FROM lectures l
        JOIN users u ON u.id = l.instructor_id
        WHERE l.id = $1 AND l.status = 'live'`,
-      [lectureId]
+      [lectureId, req.user.id]
     );
 
     if (!result.rows[0]) {
       return res.status(400).json({ error: 'Lecture is not live', code: 'NOT_LIVE' });
+    }
+    if (!result.rows[0].is_owner && !result.rows[0].is_enrolled) {
+      return res.status(403).json({ error: 'Enroll in this lecture to watch it', code: 'NOT_ENROLLED' });
     }
 
     // Claim a WebRTC slot or fall to HLS (ADR-001). No LiveKit API call here.

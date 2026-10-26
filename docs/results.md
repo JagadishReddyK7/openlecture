@@ -400,3 +400,103 @@ overstates its latency.
   this phase did not touch.
 
 Raw: `raw/p2b-{200,500,1000,large}-*`, `raw/p2a-large-*`.
+
+---
+
+## P3 — Access control (2026-10-26)
+
+Same host, engine 29.9.1, AC power, 3 × core-api, 3 × streaming-engine.
+
+What changed:
+- `/stream/join` requires enrollment, or being the lecture's instructor (403 `NOT_ENROLLED`).
+- The Q&A WebSocket needs a one-time ticket: `POST /api/qa/ticket` (JWT in the header)
+  returns a random 256-bit ticket. Redis holds it for 30 s and `GETDEL` makes it single use.
+  The socket connects with `?ticket=`.
+- Marking questions answered and changing the ranking need *this lecture's* instructor,
+  not any instructor.
+- REST question routes use the same rules, and their mutations now broadcast.
+
+### Evidence of the problem
+
+Before this phase, nginx's access log held **8,060 complete JWTs** from earlier test
+runs, one per Q&A socket (`GET /qaws?lectureId=…&token=eyJ…`). Each one was a valid
+24-hour bearer token for its user.
+
+### Access matrix
+
+```powershell
+cd backend; node scripts/access-check.js     # through the gateway, ~40 s
+```
+
+All 23 checks pass:
+
+| Request | Enrolled student | Lecture's instructor | Not-enrolled student | Other instructor |
+|---|---|---|---|---|
+| `POST /stream/join` | 200 | 200 | 403 | 403 |
+| `POST /api/qa/ticket` | 200 | 200 | 403 | 403 |
+| WS `MARK_ANSWERED` / `SET_STRATEGY` | refused | allowed | (no ticket) | (no ticket) |
+| REST `PATCH …/answer` | 403 | (not run) | (not run) | 403 |
+| REST `GET …/questions` | (not run) | (not run) | 403 | (not run) |
+
+Tickets for an unknown or malformed lecture id get 404; a request with no JWT gets 401.
+The WebSocket closes with 4001 for: a reused ticket, a ticket for a different lecture,
+no ticket, a JWT in the URL (the old scheme), and a ticket older than 30 s. A student
+refused a ticket gets one right after enrolling, because "not enrolled" is never cached.
+
+After these runs: no core-api restarts, no unhandled-rejection log lines, and no
+`qa:conn:*` keys left behind, so refused sockets don't skew the connection count.
+nginx logged 23 `/qaws` requests while the checks ran: 21 with `ticket=`, 1 with no
+credentials, and 1 with `token=eyJ…`, the old-scheme request the check sends on purpose.
+
+`smoke.js` (now via tickets): 21/21 pass.
+
+### Join latency: P3 vs pre-P3 (`9e6df61`), same host and engine
+
+Join now also asks Postgres whether the user is enrolled. That check is folded into the
+query join already ran (an `EXISTS` on the `enrollments` unique index), so it adds no
+round trip.
+
+```powershell
+docker run --rm -i --name globalclass-k6 --memory 5g --network globalclass_default `
+  -v ${PWD}/load_test.js:/load_test.js -v ${PWD}/../docs/raw:/out grafana/k6:1.3.0 run /load_test.js `
+  --env STRESS=true --env STUDENTS=200 --summary-trend-stats "avg,min,med,p(90),p(95),p(99),max" `
+  --summary-export /out/p3-stress-summary.json
+```
+
+Run back to back, with only the streaming-engine image swapped. `load_test.js` now
+enrolls its students in `setup()`. That step is harmless before P3 and required after it.
+
+| `/stream/join` | pre-P3 | P3 |
+|---|---:|---:|
+| median | 3.52 ms | 3.58 ms |
+| p95 | 12.89 ms | 10.68 ms |
+| p99 | 49.70 ms | 28.30 ms |
+| max | 524 ms | 397 ms |
+| joins (iterations) / failed requests | 70,041 / 0 % | 70,103 / 0 % |
+| all HTTP p95 | 6.78 ms | 5.81 ms |
+
+The medians are within 0.06 ms of each other. The tails differ in P3's favour, which is
+run-to-run noise on a shared laptop, not an improvement. Conclusion: no measurable join
+cost. CPU samples exist only for the pre-P3 run (streaming-engine mean 36.7–36.9 % each):
+a quoting bug in the run command made the second run overwrite the first one's console
+log and CSV. The latency numbers come from each run's own summary file.
+
+### Q&A with tickets, 1000 clients (vs P2b-1000)
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 1000 -Tag p3-1000
+```
+
+| | P2b-1000 | P3-1000 |
+|---|---:|---:|
+| Ticket request (`POST /api/qa/ticket`) | – | med 2.4 · p95 7.9 · p99 18.8 · max 36 ms, 0 errors |
+| WebSocket open | med 1 · p95 2 ms | med 1 · p95 2 ms |
+| Messages / bytes per client | 4.07 /s · 54.4 KB/s | 4.07 /s · 54.4 KB/s |
+| Update latency | med 145 · p95 259 · p99 280 ms | med 148 · p95 258 · p99 280 ms |
+| ACK timeouts / errors / abnormal closes | 0 / 0 / 0 | 0 / 0 / 0 |
+| CPU, core-api (each, mean) | 10.2–20.6 % | 10.5–21.7 % |
+
+Connecting now costs one extra HTTP request (median 2.4 ms) before the socket opens.
+Everything after the connect is unchanged.
+
+Raw: `raw/p3-1000-*`, `raw/p3-stress-summary.json`, `raw/p2b-stress-{summary.json,k6.txt,stats.csv}`.

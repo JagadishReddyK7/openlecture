@@ -15,7 +15,7 @@
 //   once per QA_BROADCAST_WINDOW_MS, re-publishing if more mutations arrived.
 
 import { WebSocketServer } from 'ws';
-import jwt from 'jsonwebtoken';
+import accessService from '../services/accessService.js';
 import qaService from '../services/qaService.js';
 import { createRedisClient } from '../config/redis.js';
 import redis from '../config/redis.js';
@@ -87,6 +87,12 @@ const broadcaster = createBroadcaster({
   windowMs: Number(process.env.QA_BROADCAST_WINDOW_MS || 250),
 });
 
+// For mutations that don't come over the socket (REST routes): bump seq and
+// let the broadcaster publish, exactly like a WebSocket mutation.
+export function notifyMutation(lectureId) {
+  return broadcaster.onMutation(lectureId);
+}
+
 // Applies one client message. Returns true if Q&A state changed.
 async function applyMessage(ws, lectureId, msg) {
   switch (msg.type) {
@@ -98,13 +104,15 @@ async function applyMessage(ws, lectureId, msg) {
       await qaService.voteQuestion(msg.questionId, ws.user.id, lectureId);
       return true;
 
+    // Instructor actions are limited to THIS lecture's instructor (isOwner comes
+    // from the ticket); checking role alone let any instructor moderate any lecture.
     case 'MARK_ANSWERED':
-      if (ws.user.role !== 'instructor') throw new Error('Only instructors can mark questions answered');
+      if (!ws.isOwner) throw new Error("Only this lecture's instructor can mark questions answered");
       await qaService.markAnswered(msg.questionId, lectureId);
       return true;
 
     case 'SET_STRATEGY': {
-      if (ws.user.role !== 'instructor') throw new Error('Only instructors can change ranking strategy');
+      if (!ws.isOwner) throw new Error("Only this lecture's instructor can change ranking strategy");
       const valid = ['default', 'votes', 'recency'];
       if (!valid.includes(msg.strategy)) throw new Error('Invalid strategy');
       // Stored in Redis so every instance ranks the same way from now on
@@ -123,30 +131,35 @@ export function initQAWebSocket() {
     const queryString = req.url.split('?')[1] || '';
     const params = new URLSearchParams(queryString);
     const lectureId = params.get('lectureId');
-    const token = params.get('token');
-
-    try {
-      ws.user = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (err) {
-      console.log('[WS] Unauthorized connection rejected:', err.message);
-      ws.close(4001, 'Unauthorized');
-      return;
-    }
-    console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
-
-    // Register this client in the local room map
-    if (!rooms.has(lectureId)) rooms.set(lectureId, new Set());
-    rooms.get(lectureId).add(ws);
-    ws.lectureId = lectureId;
+    const ticket = params.get('ticket');
 
     // Listeners are attached synchronously, before any await. `ws` does not
     // buffer events, so a message sent right after the socket opens (or an
     // early close) used to be lost while the setup below was still running.
     // Handlers wait on `ready` instead.
     const ready = (async () => {
+      // One-time ticket from POST /api/qa/ticket (see accessService). It was
+      // issued only to this lecture's instructor or an enrolled student, and
+      // GETDEL makes it single use. The JWT never appears in the URL.
+      const claims = await accessService.redeemTicket(ticket);
+      if (!claims || claims.lectureId !== lectureId) {
+        ws.close(4001, 'Unauthorized');
+        throw new Error('Unauthorized');
+      }
+      ws.user = claims.user;
+      ws.isOwner = claims.isOwner;
+      console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
+
+      // Register this client in the local room map
+      if (!rooms.has(lectureId)) rooms.set(lectureId, new Set());
+      rooms.get(lectureId).add(ws);
+      ws.lectureId = lectureId;
+      ws.inRoom = true;
+
       // Count this client lecture-wide (all instances), then subscribe this
       // instance to the lecture's broadcast channel
       await qaService.clientJoined(lectureId);
+      ws.counted = true;
       await ensureSubscribed(lectureId);
 
       // Push current state immediately so late joiners see existing questions.
@@ -159,12 +172,15 @@ export function initQAWebSocket() {
         ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
       }
     })();
+    // A refused ticket rejects `ready`; handle it now, not when 'close' fires,
+    // or Node reports an unhandled rejection (fatal by default in Node 18).
+    ready.catch(() => {});
 
     ws.on('message', async (raw) => {
       let msg = {};
       try {
         msg = JSON.parse(raw);
-        await ready;
+        try { await ready; } catch { return; }   // not admitted: ignore
         if (!(await applyMessage(ws, lectureId, msg))) return;
 
         // Data is written; bump the lecture's seq and let the broadcaster
@@ -179,17 +195,20 @@ export function initQAWebSocket() {
     });
 
     ws.on('close', async () => {
-      const room = rooms.get(lectureId);
-      room?.delete(ws);
-
-      // Last client on THIS instance: stop listening to the channel, nothing more.
-      if (room?.size === 0) {
-        rooms.delete(lectureId);
-        await maybeUnsubscribe(lectureId);
-      }
-
-      // The INCR in `ready` must land before this DECR, or the count drifts.
+      // Undo only what the setup actually did. Waiting for it also makes sure
+      // the INCR in `ready` lands before this DECR, or the count drifts.
       await ready.catch(() => {});
+
+      if (ws.inRoom) {
+        const room = rooms.get(lectureId);
+        room?.delete(ws);
+        // Last client on THIS instance: stop listening to the channel, nothing more.
+        if (room?.size === 0) {
+          rooms.delete(lectureId);
+          await maybeUnsubscribe(lectureId);
+        }
+      }
+      if (!ws.counted) return;
 
       // Last client on ANY instance: persist and clear the live buffer.
       // (Previously this ran when one instance's room emptied, wiping the

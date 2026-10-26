@@ -103,6 +103,10 @@ $out += "ack timeouts / errors        : $(Count 'qa_ack_timeouts') / $(Count 'qa
 $out += "abnormal closes / connect err: $(Count 'qa_abnormal_close') / $(Count 'qa_connect_errors')"
 $lat = $m.qa_update_latency
 if ($lat) { $out += "update latency ms            : med $($lat.med)  p95 $($lat.'p(95)')  p99 $($lat.'p(99)')  max $($lat.max)" }
+$tk = $m.qa_ticket_time
+if ($tk) { $out += "ticket request ms            : med $($tk.med)  p95 $($tk.'p(95)')  p99 $($tk.'p(99)')  max $($tk.max)  errors $(Count 'qa_ticket_errors')" }
+$ct = $m.qa_connect_time
+if ($ct) { $out += "websocket open ms            : med $($ct.med)  p95 $($ct.'p(95)')  p99 $($ct.'p(99)')  max $($ct.max)" }
 
 $out += ''
 $out += 'CPU % over the steady window (100 = one core):'

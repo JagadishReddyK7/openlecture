@@ -1,5 +1,12 @@
 // Q&A WebSocket hook
-import { useEffect, useRef, useCallback } from 'react';
+//
+// Connecting is two steps: POST /api/qa/ticket (JWT in the Authorization
+// header) returns a one-time ticket valid for 30 s, then the socket opens with
+// ?ticket=. The JWT used to go in the WebSocket URL, where nginx logged it.
+// Every (re)connect fetches a fresh ticket. A 403/404 from the ticket endpoint
+// means this user may not join this lecture's Q&A: stop and report `denied`.
+import { useEffect, useRef, useCallback, useState } from 'react';
+import api from '../services/api';
 
 const RECONNECT_DELAY_MS = 2000;  // initial backoff
 const MAX_RECONNECT_DELAY_MS = 16000;  // cap at 16s
@@ -15,6 +22,7 @@ export function useQAWebSocket(lectureId, token, onMessage) {
   // arrive after a newer one; it is dropped. Reset per socket because seq
   // restarts when a lecture's live buffer is cleared.
   const lastSeq = useRef(-1);
+  const [denied, setDenied] = useState(false);
   // Keep a ref to the latest onMessage so connect() never needs it as a dependency.
   // Without this, an inline arrow onMessage would give a new reference every render,
   // causing connect to be recreated, the effect to re-run, and the socket to reconnect
@@ -22,8 +30,38 @@ export function useQAWebSocket(lectureId, token, onMessage) {
   const onMessageRef = useRef(onMessage);
   useEffect(() => { onMessageRef.current = onMessage; });
 
-  const connect = useCallback(() => {
+  const scheduleReconnect = useCallback((reconnect) => {
+    if (!isMounted.current) return;
+    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn('Q&A WS: max reconnect attempts reached');
+      return;
+    }
+    // Exponential backoff: 2s, 4s, 8s, 16s, 16s, ...
+    const delay = Math.min(
+      RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts.current),
+      MAX_RECONNECT_DELAY_MS
+    );
+    reconnectAttempts.current += 1;
+    console.log(`Q&A WS: reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+    reconnectTimer.current = setTimeout(reconnect, delay);
+  }, []);
+
+  const connect = useCallback(async () => {
     if (!lectureId || !token || !isMounted.current) return;
+
+    let ticket;
+    try {
+      ({ data: { ticket } } = await api.post('/qa/ticket', { lectureId }));
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 401 || status === 403 || status === 404) {
+        if (isMounted.current) setDenied(true);
+        return;
+      }
+      scheduleReconnect(connect);   // network/server error: try again later
+      return;
+    }
+    if (!isMounted.current) return;
 
     // In development mode, the CRA proxy (setupProxy.js) often fails to proxy
     // WebSocket upgrade events properly. Since we have our Nginx API Gateway 
@@ -31,7 +69,7 @@ export function useQAWebSocket(lectureId, token, onMessage) {
     // to Nginx directly. In production, we use the current host.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const targetHost = process.env.NODE_ENV === 'development' ? 'localhost:80' : window.location.host;
-    const url = `${protocol}//${targetHost}/qaws?lectureId=${lectureId}&token=${token}`;
+    const url = `${protocol}//${targetHost}/qaws?lectureId=${lectureId}&ticket=${encodeURIComponent(ticket)}`;
     
     const socket = new WebSocket(url);
     ws.current = socket;
@@ -56,24 +94,10 @@ export function useQAWebSocket(lectureId, token, onMessage) {
 
     socket.onerror = (e) => console.error('Q&A WS error', e);
 
-    socket.onclose = (e) => {
-      // 4001 = unauthorized — do not reconnect
-      if (e.code === 4001 || !isMounted.current) return;
-      if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-        console.warn('Q&A WS: max reconnect attempts reached');
-        return;
-      }
-
-      // Exponential backoff: 2s, 4s, 8s, 16s, 16s, ...
-      const delay = Math.min(
-        RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts.current),
-        MAX_RECONNECT_DELAY_MS
-      );
-      reconnectAttempts.current += 1;
-      console.log(`Q&A WS: reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
-      reconnectTimer.current = setTimeout(connect, delay);
-    };
-  }, [lectureId, token]); // onMessage intentionally excluded — accessed via ref
+    // 4001 = ticket refused (expired or already used). Reconnecting fetches a
+    // new one; if the user really has no access, the ticket request says so.
+    socket.onclose = () => scheduleReconnect(connect);
+  }, [lectureId, token, scheduleReconnect]); // onMessage intentionally excluded — accessed via ref
 
   useEffect(() => {
     isMounted.current = true;
@@ -92,5 +116,5 @@ export function useQAWebSocket(lectureId, token, onMessage) {
     }
   }, []);
 
-  return { send };
+  return { send, denied };
 }

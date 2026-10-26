@@ -13,7 +13,7 @@ export default function QuestionList({ lectureId, token, user }) {
   const [counts, setCounts] = useState(null);
   const [voted, setVoted] = useState(new Set());
 
-  const { send } = useQAWebSocket(lectureId, token, (msg) => {
+  const { send, denied } = useQAWebSocket(lectureId, token, (msg) => {
     if (msg.type === 'QUESTIONS_UPDATE') {
       setQuestions(msg.questions);
       setAnswered(msg.answered || []);
@@ -21,6 +21,14 @@ export default function QuestionList({ lectureId, token, user }) {
     }
   });
   const hidden = counts ? counts.unanswered - questions.length : 0;
+
+  if (denied) {
+    return (
+      <div className="qa-panel">
+        <div className="qa-empty">Enroll in this lecture to join its Q&amp;A.</div>
+      </div>
+    );
+  }
 
   function vote(questionId) {
     if (voted.has(questionId)) return;

@@ -222,12 +222,17 @@ export function setup() {
     }
     const loginResponses = http.batch(loginRequests);
 
+    const batchTokens = [];
     for (const lr of loginResponses) {
       try {
         const token = lr.json().token;
-        if (token) students.push({ token });
+        if (token) batchTokens.push(token);
       } catch (e) { /* skip failed logins */ }
     }
+    // /stream/join requires enrollment (or ownership) since P3
+    http.batch(batchTokens.map((t) => ['POST', `${BASE_URL}/api/lectures/${lectureId}/enroll`, null,
+      { headers: { Authorization: `Bearer ${t}` } }]));
+    batchTokens.forEach((token) => students.push({ token }));
   }
   console.log(`👥 Registered ${students.length} test students\n`);
 
