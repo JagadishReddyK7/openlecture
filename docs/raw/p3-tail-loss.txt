@@ -1,0 +1,6 @@
+killed 5129cffaeab6: 7 sockets dropped, 23 still connected
+acked: 5 questions, 115 votes (sent 120)
+all disconnected; waiting 30 s for the dead instance to expire and the sweeper to flush...
+Postgres: 0/5 questions, 0/115 votes  -> LOST 5 questions, 115 votes
+Redis keys left for the lecture: 10
+lecture=dbff4e61-60a1-4ae2-bf91-db2f0c9205a2

@@ -8,9 +8,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import api from '../services/api';
 
-const RECONNECT_DELAY_MS = 2000;  // initial backoff
-const MAX_RECONNECT_DELAY_MS = 16000;  // cap at 16s
-const MAX_RECONNECT_ATTEMPTS = 8;
+// Reconnect with "full jitter": wait random(0, min(cap, base * 2^attempt)).
+// When an instance dies, every client it held disconnects at the same moment;
+// without jitter they'd all come back in lockstep and hit the survivors
+// together. No attempt limit: a lecture is worth rejoining whenever the
+// server is back, for as long as the page is open.
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_CAP_MS = 30000;
 
 export function useQAWebSocket(lectureId, token, onMessage) {
   const ws = useRef(null);
@@ -32,15 +36,8 @@ export function useQAWebSocket(lectureId, token, onMessage) {
 
   const scheduleReconnect = useCallback((reconnect) => {
     if (!isMounted.current) return;
-    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-      console.warn('Q&A WS: max reconnect attempts reached');
-      return;
-    }
-    // Exponential backoff: 2s, 4s, 8s, 16s, 16s, ...
-    const delay = Math.min(
-      RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts.current),
-      MAX_RECONNECT_DELAY_MS
-    );
+    const ceiling = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts.current);
+    const delay = Math.round(Math.random() * ceiling);
     reconnectAttempts.current += 1;
     console.log(`Q&A WS: reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
     reconnectTimer.current = setTimeout(reconnect, delay);

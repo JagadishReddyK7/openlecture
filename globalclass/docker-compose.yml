@@ -37,6 +37,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Q&A writes land in Redis first and reach Postgres up to 5 s later, so
+    # Redis must survive a restart. AOF fsync'd every second: a Redis crash
+    # can lose at most ~1 s of acknowledged writes (the default RDB snapshots
+    # could lose minutes).
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "6379:6379"
     volumes:

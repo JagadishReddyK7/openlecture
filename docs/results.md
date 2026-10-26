@@ -500,3 +500,124 @@ Connecting now costs one extra HTTP request (median 2.4 ms) before the socket op
 Everything after the connect is unchanged.
 
 Raw: `raw/p3-1000-*`, `raw/p3-stress-summary.json`, `raw/p2b-stress-{summary.json,k6.txt,stats.csv}`.
+
+---
+
+## P4 — Durability and failure demo (2026-10-26)
+
+Same host, engine 29.9.1, AC power, 3 × core-api, 3 × streaming-engine.
+
+What changed:
+- **Redis AOF:** `appendonly yes`, `appendfsync everysec`.
+- **Crash-safe presence:** connections are counted per instance (`qa:conn:<lecture>` hash of
+  instance → sockets), and each instance refreshes `qa:alive:<instance>` (TTL 15 s) every
+  5 s. Every 5 s, the sweeper on every instance walks *all* live lectures (`qa:active`),
+  drops presence held by instances whose heartbeat expired, and runs the final flush when
+  nobody is left. The buffer is deleted only after a successful flush.
+- **Incremental flush:** mutations record what they changed in dirty sets. The flush writes
+  only those rows, one multi-row `unnest` insert per table, instead of re-upserting the
+  whole lecture row by row every 5 s. A batch in progress is kept in Redis until Postgres
+  commits.
+- **Ping/pong:** the server pings every socket every 30 s and drops the ones that miss a ping.
+- **Reconnect:** the frontend uses full jitter, `random(0, min(30 s, 1 s · 2ⁿ))`, with no
+  attempt limit (it used to give up after 8). The k6 client does the same.
+- **nginx:** `proxy_connect_timeout 2s` and `proxy_next_upstream error timeout`.
+
+### Redis restart: AOF vs the old default
+
+Two throwaway `redis:7-alpine` containers, identical except for the AOF flags: 10,000 hash
+writes, a 2 s wait, then `docker kill` (SIGKILL) and `docker start`.
+
+| | Written | Present after SIGKILL + restart |
+|---|---:|---:|
+| Default (no config, as the stack ran before) | 10,000 | **0** |
+| `--appendonly yes --appendfsync everysec` | 10,000 | 10,000 |
+
+With `everysec`, a Redis crash can still lose up to about 1 s of acknowledged writes.
+`always` would close that gap at the cost of an fsync per write. That trade-off was
+not measured here.
+
+### Instance crash, last-seconds writes (`tail-loss-check.js`)
+
+```powershell
+cd backend; node scripts/tail-loss-check.js
+```
+
+The test:
+- 30 enrolled students connect, then one core-api is `docker kill`ed.
+- The survivors ask 5 questions, every survivor votes on each, and they wait for all ACKs.
+- They all disconnect within ~1.5 s of their last change, which is less than one flush
+  interval. Postgres is read 30 s later.
+
+| | Sockets on the killed instance | ACKed | In Postgres | Redis keys left |
+|---|---:|---:|---:|---:|
+| Pre-P4 (`ff9b7b8`) | 7 | 5 questions, 115 votes | **0 questions, 0 votes** | 10 |
+| P4 | 9 | 5 questions, 105 votes | 5 questions, 105 votes | 0 |
+
+Before: the killed instance's sockets never ran their `DECR`, so the lecture-wide counter
+stayed above zero. The final flush never ran, and with no sockets left on the surviving
+instances nobody ran the periodic flush either. The changes sat in Redis indefinitely.
+After: the dead instance's heartbeat expired, the sweeper dropped its presence, and it ran
+the final flush.
+
+### Instance crash under load: 1000 clients (`chaos-kill-core.ps1`)
+
+```powershell
+.\scripts\chaos-kill-core.ps1 -Clients 1000 -Tag p4-chaos   # p3-chaos: same, on ff9b7b8 + its nginx.conf
+```
+
+This is the P1 workload. One core-api is killed 30 s into the 120 s steady window, and the
+clients reconnect with full jitter and a fresh ticket. 30 s after k6 ends, Postgres is
+compared with what the clients were ACKed.
+
+| | Pre-P4 | P4 |
+|---|---:|---:|
+| Sockets dropped (abnormal closes) | 332 | 332 |
+| Reconnected | 332 | 332 |
+| Reconnect time, close → open | med 521 · p95 955 · max 1,012 ms | med 512 · p95 973 · max 1,001 ms |
+| Ticket / connect errors | 0 / 0 | 0 / 0 |
+| Questions: ACKed → in Postgres | 102 → 102 | 101 → 101 |
+| Votes: ACKed → in Postgres | 14,484 → 14,484 | 14,078 → 14,078 |
+| Unacked (sent, no ACK or error) | 0 | 0 |
+| Redis keys left for the lecture | **10** | 0 |
+
+Both versions kept every ACKed change here, because this workload stops mutating 5 s
+before the clients disconnect. The old periodic flush, which runs while sockets are
+connected, therefore caught everything. The tail-loss test above isolates the case it
+misses. Under load, the old code's lasting cost is the leaked live buffer. Reconnect
+time is set by the client's backoff: the first attempt waits `random(0, 1 s)`, so all
+332 were back within ~1 s. No mutation went unacknowledged in either run.
+
+**nginx failover.** In the first chaos trial (60 clients, before the nginx change),
+ticket requests sent just after the kill hit k6's 60 s timeout: nginx kept trying the
+dead instance and waited its default 60 s connect timeout. One k6 client then stayed
+stuck past the scenario's max duration. This happened once. The trial's files were
+discarded with the other trial output, and the pre-P4 1000-client run above did not
+reproduce it (0 ticket errors), so there is no measured before/after for this change.
+With the 2 s timeout and retry on the next instance, the trial's worst ticket request
+took 2,011 ms: one connect attempt at the dead instance, then a working one.
+
+### Flush cost: incremental vs full re-upsert, 1000 clients, no failure
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 1000 -Tag p4-1000
+```
+
+| | P3-1000 (full re-upsert, row by row, every 5 s) | P4-1000 (changed rows only, batched) |
+|---|---:|---:|
+| Postgres CPU (mean / peak) | 14.0 % / 45.5 % | 1.2 % / 8.6 % |
+| Flush duration | not logged | med 36 · p95 79 · max 93 ms (32 flushes, ~516 votes each) |
+| Update latency p95 | 258 ms | 258 ms |
+| Messages / bytes per client | 4.07 /s · 54.4 KB/s | 4.08 /s · 54.5 KB/s |
+| Ticket request p95 | 7.9 ms | 6.6 ms |
+| core-api CPU (each, mean) | 10.5–21.7 % | 10.7–10.9 % |
+
+Each P4 flush writes what changed in the last 5 s (~520 votes), whatever the lecture's
+size. Before, every flush rewrote every question and vote so far. By the end of P3-1000
+that was ~14,000 single-row upserts per lecture every 5 s.
+
+### Checks re-run on P4
+
+`smoke.js` 21/21, `access-check.js` 23/23, `ranking-check.js` all pass.
+
+Raw: `raw/p4-*`, `raw/p3-chaos-*`, `raw/p3-tail-loss.txt`.

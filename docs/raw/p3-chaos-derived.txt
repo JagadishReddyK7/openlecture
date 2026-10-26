@@ -1,0 +1,49 @@
+﻿tag=p3-chaos clients=1000 steady=120s lecture=b12033c4-f156-4dbd-8d2b-f0ef2165b9d1
+window 2026-10-26T18:11:30.7880000+00:00 .. 2026-10-26T18:13:30.7880000+00:00
+
+mutations sent (steady)      : 12731  (106.1/s cluster-wide)
+msgs received per client/s   : 4.06
+updates received per client/s: 3.95
+bytes received per client/s  : 54257.89
+total bytes received/s       : 54257887
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 332 / 0
+update latency ms            : med 148  p95 259.5  p99 276  max 1127
+ticket request ms            : med 2.6966315  p95 15.346753300000005  p99 43.71808501000002  max 61.975315  errors 0
+websocket open ms            : med 1  p95 3  p99 11.690000000000055  max 44
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  26.4 peak=  40.6
+  globalclass-core-api-3           n= 14 mean=   9.5 peak=  11.4
+  globalclass-core-api-4           n= 59 mean=  23.1 peak=  47.6
+  globalclass-core-api-5           n= 59 mean=  13.9 peak=  43.6
+  globalclass-k6                   n= 59 mean= 182.0 peak= 396.4
+  globalclass-minio-1              n= 59 mean=   0.9 peak=   5.7
+  globalclass-postgres-1           n= 59 mean=  13.5 peak=  43.9
+  globalclass-redis-1              n= 59 mean=   3.5 peak=   9.2
+  globalclass-streaming-engine-3   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-4   n= 59 mean=   0.0 peak=   0.0
+  globalclass-streaming-engine-5   n= 59 mean=   0.0 peak=   0.0
+
+Sockets per core-api instance:
+  core-api-3: 332
+  core-api-4: 504
+  core-api-5: 496
+
+Redis (since RESETSTAT):
+  total_commands_processed:228362
+  total_net_output_bytes:60109822
+  cmdstat_hgetall:calls=88,usec=68367,usec_per_call=776.90,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=31293,usec=1247003,usec_per_call=39.85,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=14484,usec=62241,usec_per_call=4.30,rejected_calls=0,failed_calls=0
+  cmdstat_hincrby:calls=14484,usec=50440,usec_per_call=3.48,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=15918,usec=28593,usec_per_call=1.80,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=609,usec=4087,usec_per_call=6.71,rejected_calls=0,failed_calls=0
+
+--- chaos ---
+killed globalclass-core-api-3 (fa1607e384b413b5d5c4443b24390117c43b9f37faaee713fbb3a5832df046eb) at 2026-10-26T18:12:01.2938623+00:00 (steady start + 30s)
+SUBMIT_QUESTION  sent    102  acked    102  rejected     0  unacked    0  in Postgres    102  -> OK (acked <= stored <= acked + unacked)
+VOTE             sent  14484  acked  14484  rejected     0  unacked    0  in Postgres  14484  -> OK (acked <= stored <= acked + unacked)
+abnormal closes: 332   reconnects: 332   ticket errors: 0   connect errors: 0
+reconnect time ms (close -> open): med 521  p95 955.3499999999999  p99 1010  max 1012
+Redis after settle: 10 qa:* keys left for the lecture, in qa:active: 0

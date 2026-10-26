@@ -40,6 +40,8 @@ const VOTE_MIN = 5, VOTE_MAX = 15;      // s between votes per voter
 const QMAX = parseInt(__ENV.QMAX || '100', 10);
 const SEED_QUESTIONS = parseInt(__ENV.SEED_QUESTIONS || '0', 10);
 const PENDING_TIMEOUT_MS = 10000;
+const RECONNECT_BASE_MS = 1000;   // same as frontend/src/hooks/useWebSocket.js
+const RECONNECT_CAP_MS = 30000;
 const UPDATE_PREFIX = '{"type":"QUESTIONS_UPDATE","seq":';
 const SEQ_RE = /"seq":(\d+)/;
 
@@ -47,6 +49,14 @@ const updateLatency = new Trend('qa_update_latency', true);
 const connectTime = new Trend('qa_connect_time', true);   // WebSocket open only
 const ticketTime = new Trend('qa_ticket_time', true);     // POST /api/qa/ticket
 const ticketErrors = new Counter('qa_ticket_errors');
+// Reconnects (an instance dies mid-run): close -> next open, including backoff
+const reconnectTime = new Trend('qa_reconnect_time', true);
+const reconnects = new Counter('qa_reconnects');
+// Whole-run accounting by type, to compare with what reached Postgres:
+// acked mutations must all be there; unacked = sent - acked - rejected may or may not be
+const sentTotal = new Counter('qa_sent_total');
+const ackedTotal = new Counter('qa_acked_total');
+const rejectedTotal = new Counter('qa_rejected_total');
 const msgs = new Counter('qa_msgs');
 const bytes = new Counter('qa_bytes');
 const updateMsgs = new Counter('qa_update_msgs');
@@ -68,6 +78,9 @@ export const options = {
     },
   },
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
+  // Per-type totals in the summary export (sub-metrics need a threshold to be listed)
+  thresholds: Object.fromEntries(['qa_sent_total', 'qa_acked_total', 'qa_rejected_total']
+    .flatMap((m) => ['SUBMIT_QUESTION', 'VOTE'].map((t) => [`${m}{type:${t}}`, ['count>=0']]))),
 };
 
 const json = { headers: { 'Content-Type': 'application/json' } };
@@ -132,14 +145,9 @@ export default function (data) {
 }
 
 function run(data, idx, isAsker, closeAt, inSteady) {
-  // One-time ticket (JWT in the header), then the socket with ?ticket=
-  const tr = http.post(`${BASE}/api/qa/ticket`, JSON.stringify({ lectureId: data.lectureId }),
-    { ...auth(data.tokens[idx]), tags: { name: 'qa_ticket' } });
-  ticketTime.add(tr.timings.duration);
-  if (tr.status !== 200) { ticketErrors.add(1); return; }
-  const t0 = Date.now();
-  const ws = new WebSocket(`${WS_BASE}/qaws?lectureId=${data.lectureId}&ticket=${encodeURIComponent(tr.json().ticket)}`);
-
+  // State that outlives any one socket: a client that loses its connection
+  // reconnects and carries on with the same identity and vote history.
+  let ws = null;
   let questions = [];
   let total = 0;               // questions in the lecture (the list itself may be capped)
   let latestRaw = null;        // newest QUESTIONS_UPDATE, parsed on demand
@@ -150,7 +158,9 @@ function run(data, idx, isAsker, closeAt, inSteady) {
   let nextId = 0;
   let open = false;
   let closing = false;
-  let timer = null;
+  let actTimer = null;
+  let attempts = 0;
+  let droppedAt = null;        // when the last socket was lost (for qa_reconnect_time)
 
   function resolve(id, p, at) {
     if (inSteady(p.sentAt)) updateLatency.add(at - p.sentAt, { type: p.type });
@@ -163,6 +173,7 @@ function run(data, idx, isAsker, closeAt, inSteady) {
     const sentAt = Date.now();
     pending.set(id, { sentAt, type, seq: null });
     if (inSteady(sentAt)) mutationsSent.add(1, { type });
+    sentTotal.add(1, { type });
     ws.send(JSON.stringify({ ...body, type, clientMsgId: id }));
   }
 
@@ -197,58 +208,103 @@ function run(data, idx, isAsker, closeAt, inSteady) {
     }
   }
 
-  ws.onopen = () => {
-    open = true;
-    connectTime.add(Date.now() - t0);
-    const [lo, hi] = isAsker ? [ASK_MIN, ASK_MAX] : [VOTE_MIN, VOTE_MAX];
-    // Random phase so clients don't fire in lockstep, then a fixed mean rate
-    setTimeout(() => {
-      act();
-      timer = setInterval(act, rand(lo, hi) * 1000);
-    }, rand(0, hi) * 1000);
-    setTimeout(() => { closing = true; if (timer) clearInterval(timer); ws.close(); }, Math.max(0, closeAt - Date.now()));
-  };
+  // Same policy as the frontend hook: full jitter, random(0, min(cap, base * 2^n)),
+  // so clients of a dead instance don't all come back in the same instant.
+  function scheduleReconnect() {
+    if (closing || Date.now() >= closeAt) return;
+    const delay = Math.random() * Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempts);
+    attempts += 1;
+    setTimeout(connect, delay);
+  }
 
-  ws.onmessage = (e) => {
-    const at = Date.now();
-    if (inSteady(at)) {
-      msgs.add(1);
-      bytes.add(e.data.length);   // ASCII payloads: chars == bytes
-    }
+  function connect() {
+    if (closing) return;
+    // One-time ticket (JWT in the header), then the socket with ?ticket=
+    const tr = http.post(`${BASE}/api/qa/ticket`, JSON.stringify({ lectureId: data.lectureId }),
+      { ...auth(data.tokens[idx]), tags: { name: 'qa_ticket' }, timeout: '10s' });
+    ticketTime.add(tr.timings.duration);
+    if (tr.status !== 200) { ticketErrors.add(1); scheduleReconnect(); return; }
 
-    // Updates are large and frequent. Parsing every one in every client made
-    // k6 itself the bottleneck, so only seq is read here (the server puts it
-    // right after "type"); the list is parsed lazily when a vote needs it.
-    if (e.data.startsWith(UPDATE_PREFIX)) {
-      const seq = Number(SEQ_RE.exec(e.data.slice(0, 64))[1]);
-      if (inSteady(at)) updateMsgs.add(1);
-      if (seq >= lastSeq) { lastSeq = seq; latestRaw = e.data; }
-      recent.push({ seq, at });
-      if (recent.length > 500) recent.shift();
-      for (const [id, p] of pending) {
-        if (p.seq !== null && seq >= p.seq) resolve(id, p, at);
+    const t0 = Date.now();
+    const sock = new WebSocket(`${WS_BASE}/qaws?lectureId=${data.lectureId}&ticket=${encodeURIComponent(tr.json().ticket)}`);
+    ws = sock;
+    let thisOpen = false;
+
+    sock.onopen = () => {
+      thisOpen = true;
+      open = true;
+      attempts = 0;
+      lastSeq = -1;   // seq is per lecture buffer; a new socket starts fresh
+      connectTime.add(Date.now() - t0);
+      if (droppedAt !== null) {
+        reconnectTime.add(Date.now() - droppedAt);
+        reconnects.add(1);
+        droppedAt = null;
       }
-      return;
-    }
+    };
 
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'ACK') {
-      const p = pending.get(msg.clientMsgId);
-      if (!p) return;
-      p.seq = msg.seq;
-      // The broadcast can arrive before the ACK: look back for it
-      const hit = recent.find((u) => u.at >= p.sentAt && u.seq >= p.seq);
-      if (hit) resolve(msg.clientMsgId, p, hit.at);
-    } else if (msg.type === 'ERROR') {
-      if (msg.clientMsgId) pending.delete(msg.clientMsgId);
-      if (msg.message === 'Already voted') alreadyVoted.add(1);
-      else if (inSteady(at)) errors.add(1);
-    }
-  };
+    sock.onmessage = (e) => {
+      const at = Date.now();
+      if (inSteady(at)) {
+        msgs.add(1);
+        bytes.add(e.data.length);   // ASCII payloads: chars == bytes
+      }
 
-  ws.onerror = () => { if (!open) connectErrors.add(1); };
-  ws.onclose = () => {
-    if (timer) clearInterval(timer);
-    if (!closing) abnormalClose.add(1);
-  };
+      // Updates are large and frequent. Parsing every one in every client made
+      // k6 itself the bottleneck, so only seq is read here (the server puts it
+      // right after "type"); the list is parsed lazily when a vote needs it.
+      if (e.data.startsWith(UPDATE_PREFIX)) {
+        const seq = Number(SEQ_RE.exec(e.data.slice(0, 64))[1]);
+        if (inSteady(at)) updateMsgs.add(1);
+        if (seq >= lastSeq) { lastSeq = seq; latestRaw = e.data; }
+        recent.push({ seq, at });
+        if (recent.length > 500) recent.shift();
+        for (const [id, p] of pending) {
+          if (p.seq !== null && seq >= p.seq) resolve(id, p, at);
+        }
+        return;
+      }
+
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'ACK') {
+        const p = pending.get(msg.clientMsgId);
+        if (!p) return;
+        ackedTotal.add(1, { type: p.type });
+        p.seq = msg.seq;
+        // The broadcast can arrive before the ACK: look back for it
+        const hit = recent.find((u) => u.at >= p.sentAt && u.seq >= p.seq);
+        if (hit) resolve(msg.clientMsgId, p, hit.at);
+      } else if (msg.type === 'ERROR') {
+        const p = msg.clientMsgId && pending.get(msg.clientMsgId);
+        if (p) { rejectedTotal.add(1, { type: p.type }); pending.delete(msg.clientMsgId); }
+        if (msg.message === 'Already voted') alreadyVoted.add(1);
+        else if (inSteady(at)) errors.add(1);
+      }
+    };
+
+    sock.onerror = () => { if (!thisOpen) connectErrors.add(1); };
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      open = false;
+      if (closing) return;
+      // Lost the server (e.g. its instance was killed): count it, reconnect
+      if (thisOpen) { abnormalClose.add(1); droppedAt = Date.now(); }
+      scheduleReconnect();
+    };
+  }
+
+  connect();
+
+  const [lo, hi] = isAsker ? [ASK_MIN, ASK_MAX] : [VOTE_MIN, VOTE_MAX];
+  // Random phase so clients don't fire in lockstep, then a fixed mean rate.
+  // Ticks while disconnected simply send nothing.
+  setTimeout(() => {
+    act();
+    actTimer = setInterval(act, rand(lo, hi) * 1000);
+  }, rand(0, hi) * 1000);
+  setTimeout(() => {
+    closing = true;
+    if (actTimer) clearInterval(actTimer);
+    if (ws) ws.close();
+  }, Math.max(0, closeAt - Date.now()));
 }

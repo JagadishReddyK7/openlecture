@@ -20,6 +20,9 @@ import qaService from '../services/qaService.js';
 import { createRedisClient } from '../config/redis.js';
 import redis from '../config/redis.js';
 import { createBroadcaster, channel as pubChannel } from '../services/broadcaster.js';
+import { instanceId } from '../config/instance.js';
+
+const PING_EVERY_MS = 30_000;   // a socket that misses one ping round is dropped
 
 // lectureId -> Set of WebSocket clients (local to this instance only)
 const rooms = new Map();
@@ -83,6 +86,7 @@ async function buildUpdate(lectureId, seq) {
 
 const broadcaster = createBroadcaster({
   redis,
+  instanceId,
   buildPayload: buildUpdate,
   windowMs: Number(process.env.QA_BROADCAST_WINDOW_MS || 250),
 });
@@ -148,6 +152,8 @@ export function initQAWebSocket() {
       }
       ws.user = claims.user;
       ws.isOwner = claims.isOwner;
+      ws.isAlive = true;
+      ws.on('pong', () => { ws.isAlive = true; });
       console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
 
       // Register this client in the local room map
@@ -158,7 +164,7 @@ export function initQAWebSocket() {
 
       // Count this client lecture-wide (all instances), then subscribe this
       // instance to the lecture's broadcast channel
-      await qaService.clientJoined(lectureId);
+      await qaService.clientJoined(lectureId, instanceId);
       ws.counted = true;
       await ensureSubscribed(lectureId);
 
@@ -213,26 +219,56 @@ export function initQAWebSocket() {
       // Last client on ANY instance: persist and clear the live buffer.
       // (Previously this ran when one instance's room emptied, wiping the
       // Redis buffer while students on other instances were still asking.)
-      const remaining = await qaService.clientLeft(lectureId);
-      if (remaining <= 0) {
-        await qaService.finalFlushAndClean(lectureId);
+      try {
+        const remaining = await qaService.clientLeft(lectureId, instanceId);
+        if (remaining <= 0) await qaService.finalFlushAndClean(lectureId);
+      } catch (err) {
+        console.error(`[Q&A Close] ${lectureId}:`, err.message);
       }
     });
   });
 
-  // Flush all active lecture buffers to PostgreSQL every 5 seconds (NFR2 durability).
-  // A short Redis lock makes sure only one instance flushes a lecture per tick.
+  // Heartbeat: while this key exists, the sockets this instance counted in
+  // qa:conn:* are believed. If the process dies, the key expires (15 s).
+  const beat = () => qaService.heartbeat(instanceId).catch((err) => console.error('[Heartbeat]', err.message));
+  beat();
+  setInterval(beat, 5000);
+
+  // Every 5 s, for EVERY lecture with a live buffer (not just ones with
+  // sockets here, so a lecture whose clients were all on a killed instance
+  // is still handled):
+  //   - drop presence held by dead instances; if nobody is left, run the
+  //     final flush and clear the buffer
+  //   - otherwise flush what changed to PostgreSQL (NFR2 durability)
+  // A short Redis lock makes sure only one instance works on a lecture per tick.
   setInterval(async () => {
-    for (const [lectureId] of rooms) {
+    let lectures = [];
+    try { lectures = await qaService.activeLectures(); } catch (err) { console.error('[Q&A Flush]', err.message); }
+    for (const lectureId of lectures) {
       try {
-        if (await qaService.tryAcquireFlushLock(lectureId)) {
-          await qaService.flushToDB(lectureId);
-        }
+        if (!(await qaService.tryAcquireFlushLock(lectureId))) continue;
+        const { live, removed } = await qaService.pruneDead(lectureId);
+        if (removed > 0) console.log(`[Q&A Sweep] ${lectureId}: dropped presence of ${removed} dead instance(s), ${live} sockets left`);
+        if (live <= 0) await qaService.finalFlushAndClean(lectureId);
+        else await qaService.flushToDB(lectureId);
       } catch (err) {
         console.error(`[Q&A Flush] ${lectureId}:`, err.message);
       }
     }
   }, 5000);
+
+  // Ping every socket; terminate the ones that didn't answer the last ping.
+  // A half-open TCP connection (laptop sleep, network drop) otherwise stays
+  // in the room and in the presence count forever.
+  setInterval(() => {
+    for (const room of rooms.values()) {
+      for (const ws of room) {
+        if (ws.isAlive === false) { ws.terminate(); continue; }
+        ws.isAlive = false;
+        ws.ping();
+      }
+    }
+  }, PING_EVERY_MS);
 
   // If a lease holder crashed mid-window, its lease expires and any instance
   // with sockets in that lecture publishes the missed state. (An instance
@@ -247,5 +283,5 @@ export function initQAWebSocket() {
     }
   }, 1000);
 
-  console.log('[WS] Q&A WebSocket initialized with Redis Pub/Sub broadcast');
+  console.log(`[WS] Q&A WebSocket initialized with Redis Pub/Sub broadcast (instance ${instanceId})`);
 }
