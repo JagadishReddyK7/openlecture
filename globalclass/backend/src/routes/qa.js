@@ -3,6 +3,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import accessService from '../services/accessService.js';
 import { tickets } from '../metrics.js';
+import { hit } from '../services/rateLimit.js';
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ const router = express.Router();
 router.post('/ticket', authenticate, async (req, res) => {
   const { lectureId } = req.body || {};
   try {
+    await hit('ticket', req.user.id);   // bounds a misbehaving reconnect loop
     const access = await accessService.checkAccess(lectureId, req.user);
     if (!access.exists) {
       tickets.inc({ result: 'not_found' });
@@ -26,7 +28,7 @@ router.post('/ticket', authenticate, async (req, res) => {
     tickets.inc({ result: 'issued' });
     res.json(issued);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

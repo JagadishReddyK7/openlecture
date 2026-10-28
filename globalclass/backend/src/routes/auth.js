@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../config/db.js';
+import { hit, exhausted } from '../services/rateLimit.js';
 
 const router = express.Router();
 
@@ -24,10 +25,18 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
+  // Brute-force guard, per account: after LIMITS.loginFail failed attempts
+  // the email is locked out for the rest of the window. Checked before
+  // bcrypt, so a guessing attack also stops costing server CPU.
+  const who = String(email || '').toLowerCase();
   try {
+    if (await exhausted('loginFail', who)) {
+      return res.status(429).json({ error: 'Too many failed logins, try again later' });
+    }
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     const user = result.rows[0];
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      await hit('loginFail', who).catch(() => {});   // count it; the 429 comes on the next try
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = jwt.sign(

@@ -89,6 +89,9 @@ one it already applied.
 |---|---|
 | `cd backend; node scripts/smoke.js` | end-to-end API + Q&A through the gateway, including the Postgres flush |
 | `cd backend; node scripts/access-check.js` | access-control matrix (23 cases) |
+| `cd backend; node scripts/abuse-check.js` | input limits and per-account rate limits |
+| `cd backend; node scripts/resync-check.js` | clients catch up after a flapping Redis connection (needs Redis on :6379) |
+| `cd backend; node scripts/slot-check.js` | 1,000 simultaneous joins get exactly `WEBRTC_PRIORITY_LIMIT` WebRTC slots |
 | `cd backend; node scripts/coalesce-check.js` | broadcaster correctness against Redis (needs Redis on :6379) |
 | `docker compose exec -T core-api node scripts/ranking-check.js` | Redis ranking indexes == in-memory sort |
 | `cd backend; node scripts/tail-loss-check.js` | no data loss when an instance is killed (kills one core-api) |

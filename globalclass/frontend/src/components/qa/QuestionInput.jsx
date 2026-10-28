@@ -20,6 +20,7 @@ export default function QuestionInput({ send }) {
   return (
     <form onSubmit={handleSubmit} className="qa-input-form">
       <textarea
+        maxLength={1000}
         className="qa-textarea"
         value={content}
         onChange={e => setContent(e.target.value.slice(0, MAX_CHARS))}

@@ -6,6 +6,7 @@ import { rank, liveIndex } from './rankingStrategy.js';
 import { v4 as uuidv4 } from 'uuid';
 import { verKey, leaseKey, sentKey, snapKey } from './broadcaster.js';
 import { flushDuration, flushRows } from '../metrics.js';
+import { hit } from './rateLimit.js';
 
 // Redis key helpers
 const liveQKey  = (id) => `qa:live:q:${id}`;       // Hash: questionId → JSON
@@ -31,6 +32,22 @@ const flushingVKey = (id) => `qa:flushing:v:${id}`;
 const ACTIVE = 'qa:active';                           // Set: lectures with a live buffer
 const ALIVE_PREFIX = 'qa:alive:';                     // + instanceId: heartbeat, EX ALIVE_TTL
 const ALIVE_TTL = 15;                                 // s
+
+// Input limits. The broadcast is bounded to TOP_K questions, so the size of
+// each question has to be bounded too, or one oversized question would be
+// re-sent to every viewer four times a second.
+export const MAX_QUESTION_CHARS = 1000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+function checkQuestionId(questionId) {
+  if (!UUID.test(String(questionId))) throw badRequest('Invalid question id');
+}
 
 // Payload bounds: clients get the top TOP_K unanswered questions and the
 // ANSWERED_K most recently answered, plus counts, never the whole list.
@@ -282,6 +299,12 @@ async function seedFromDB(lectureId) {
 }
 
 export async function submitQuestion(lectureId, studentId, content) {
+  const text = typeof content === 'string' ? content.trim() : '';
+  if (text.length === 0 || text.length > MAX_QUESTION_CHARS) {
+    throw badRequest(`A question must be 1-${MAX_QUESTION_CHARS} characters`);
+  }
+  await hit('question', studentId);
+
   // If the buffer is empty (e.g. first question after a session gap), restore
   // existing questions from PostgreSQL so the broadcast stays complete.
   const bufferSize = await redis.hLen(liveQKey(lectureId));
@@ -292,7 +315,7 @@ export async function submitQuestion(lectureId, studentId, content) {
     id,
     lecture_id: lectureId,
     student_id: studentId,
-    content,
+    content: text,
     is_answered: false,
     created_at: new Date().toISOString(),
     vote_count: 0,
@@ -333,6 +356,8 @@ return n
 `;
 
 export async function voteQuestion(questionId, studentId, lectureId) {
+  checkQuestionId(questionId);
+  await hit('vote', studentId);
   const bufferSize = await redis.hLen(liveQKey(lectureId));
   if (bufferSize === 0) await seedFromDB(lectureId);
 
@@ -364,6 +389,7 @@ return 1
 `;
 
 export async function markAnswered(questionId, lectureId) {
+  checkQuestionId(questionId);
   // Update in Redis buffer if question is still live
   await redis.eval(MARK_ANSWERED, {
     keys: [liveQKey(lectureId), ...indexKeys(lectureId), answeredKey(lectureId), dirtyQKey(lectureId)],

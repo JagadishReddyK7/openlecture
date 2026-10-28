@@ -24,7 +24,7 @@ function lectureAccess({ ownerOnly = false } = {}) {
       req.access = access;
       next();
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   };
 }
@@ -35,7 +35,7 @@ router.get('/:id/questions', authenticate, lectureAccess(), async (req, res) => 
     const strategy = await qaService.getStrategy(req.params.id);
     res.json(await qaService.getRankedQuestions(req.params.id, strategy));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -46,7 +46,7 @@ router.post('/:id/questions', authenticate, lectureAccess(), async (req, res) =>
     await notifyMutation(req.params.id);
     res.status(201).json(question);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -57,7 +57,7 @@ router.post('/:id/questions/:qid/vote', authenticate, lectureAccess(), async (re
     await notifyMutation(req.params.id);
     res.json(result);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
@@ -68,7 +68,7 @@ router.patch('/:id/questions/:qid/answer', authenticate, lectureAccess({ ownerOn
     await notifyMutation(req.params.id);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

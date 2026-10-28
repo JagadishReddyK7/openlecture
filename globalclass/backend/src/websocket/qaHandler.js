@@ -32,12 +32,38 @@ const rooms = new Map();
 // Ranking strategy and the lecture-wide connection count live in Redis
 // (see qaService), not here: this process only knows about its own sockets.
 
-export const qaWss = new WebSocketServer({ noServer: true });
+// maxPayload: the largest legitimate message is a 1,000-character question
+// (~4 KB as UTF-8 JSON). ws defaults to 100 MiB; bigger frames now close the
+// socket with 1009 before they are buffered.
+export const qaWss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 
 // Dedicated Redis subscriber connection.
 // A subscribed Redis client cannot issue regular commands, so it must be separate
 // from the shared client used by qaService for data reads/writes.
 const subscriber = createRedisClient();
+
+// Pub/Sub is at-most-once. If this connection drops, broadcasts published
+// meanwhile never reach this instance, and its clients would show stale state
+// until the next change (forever, if the lecture goes quiet). node-redis
+// re-subscribes before emitting 'ready' again, so on every reconnect push each
+// local lecture's latest published payload (qa:snapshot, written by every
+// publish whether or not anyone received it). Clients ignore it if they
+// already have that seq.
+let subscriberConnectedBefore = false;
+subscriber.on('ready', () => {
+  if (!subscriberConnectedBefore) { subscriberConnectedBefore = true; return; }
+  resyncLocalRooms().catch((err) => console.error('[WS] resync after reconnect failed:', err.message));
+});
+
+async function resyncLocalRooms() {
+  for (const [lectureId, room] of rooms) {
+    const snapshot = await broadcaster.getSnapshot(lectureId);
+    if (!snapshot) continue;
+    room.forEach((client) => { if (client.readyState === 1) client.send(snapshot); });
+    metrics.resyncs.inc();
+  }
+  console.log(`[WS] Redis subscriber reconnected: resynced ${rooms.size} lecture(s)`);
+}
 
 // Track which lecture channels this instance is already subscribed to,
 // so we don't re-subscribe on every new client connection to the same lecture.
@@ -143,6 +169,15 @@ export function initQAWebSocket() {
     const lectureId = params.get('lectureId');
     const ticket = params.get('ticket');
 
+    // A protocol error on one socket (e.g. a frame over maxPayload) is emitted
+    // as an 'error' event on that socket. Without a listener Node treats it as
+    // unhandled and exits: one oversized message from any client used to take
+    // down the whole instance and every socket on it. ws closes the socket
+    // itself (1009 for oversized frames); 'close' then runs the cleanup.
+    ws.on('error', (err) => {
+      console.warn(`[WS] socket error (${err.code || err.message}); closing it`);
+    });
+
     // Listeners are attached synchronously, before any await. `ws` does not
     // buffer events, so a message sent right after the socket opens (or an
     // early close) used to be lost while the setup below was still running.
@@ -203,7 +238,9 @@ export function initQAWebSocket() {
         metrics.mutations.inc({ type: msg.type });
         ws.send(JSON.stringify({ type: 'ACK', clientMsgId: msg.clientMsgId, seq }));
       } catch (err) {
-        if (err.message !== 'Already voted') console.error('[Q&A WebSocket Message Error]:', err);
+        // Expected refusals (bad input, rate limit, already voted) aren't logged:
+        // a client hammering a limit must not be able to flood the logs
+        if (!err.status && err.message !== 'Already voted') console.error('[Q&A WebSocket Message Error]:', err);
         // Label only known types: msg.type is client input, and an open label
         // set would let any client create unbounded time series
         metrics.mutationErrors.inc({ type: KNOWN_TYPES.has(msg.type) ? msg.type : 'other' });

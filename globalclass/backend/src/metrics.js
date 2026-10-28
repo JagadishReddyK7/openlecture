@@ -56,6 +56,12 @@ export const fanoutMessages = new client.Counter({
   registers: [register],
 });
 
+export const resyncs = new client.Counter({
+  name: 'qa_resyncs_total',
+  help: 'Lectures re-sent their latest snapshot after the Redis subscriber reconnected',
+  registers: [register],
+});
+
 export const tickets = new client.Counter({
   name: 'qa_tickets_total',
   help: 'POST /api/qa/ticket outcomes',

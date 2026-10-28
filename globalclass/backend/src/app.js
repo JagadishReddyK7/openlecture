@@ -14,7 +14,7 @@ import { metricsHandler } from './metrics.js';
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '16kb' }));   // no route needs more; the default is 100kb
 
 app.use('/api/auth', authRoutes);
 app.use('/api/lectures', lectureRoutes);
