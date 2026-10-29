@@ -44,6 +44,8 @@ service split, not independent microservices: both read the same database.
 | **Bounded payload** (top 50 + counts) from Redis sorted sets, one per ranking strategy | Update size stopped growing with the lecture; no full re-sort per update | Clients see the top 50 open questions. The full list is available over REST |
 | **Crash-safe presence**: per-instance socket counts + heartbeats + a sweeper | A killed instance used to leave the lecture looking occupied forever, so its last writes never reached Postgres | Cleanup after a crash waits for the 15 s heartbeat to expire |
 | **One-time WebSocket tickets** (30 s, single-use `GETDEL`) | The JWT used to sit in the WebSocket URL; nginx had logged it 8,060 times | One extra HTTP request per (re)connect, median 2.5 ms |
+| **Resync after a Redis reconnect**: re-send each lecture's last published snapshot | Pub/Sub is at-most-once. An instance whose subscriber was briefly down missed broadcasts, and a quiet lecture stayed stale forever | One extra snapshot per lecture per reconnect |
+| **Input and rate limits per account**, not per IP (questions ≤ 1,000 chars, 10 per minute; login lockout after 10 failures) | The payload bound needs a size bound per question. On a campus NAT thousands of students share one IP, so per-IP limits would throttle a whole university | Fixed windows allow up to 2× a limit across a window boundary |
 
 ## Measured results
 
@@ -62,6 +64,7 @@ All on one laptop: Docker Desktop, 14 vCPUs, load generator on the same machine,
 | PostgreSQL CPU at 1000 viewers (flush) | 14 % | **1.2 %** |
 | 1,000 simultaneous joins, WebRTC limit 500 | – | **exactly 500 WebRTC + 500 HLS**, 0 failures |
 | Join latency with the enrollment check added | median 3.52 ms | median 3.58 ms (p95 10.7 ms) |
+| Clients left stale after a flapping Redis connection (40 rounds × 6 clients) | **194 of 240** | **0 of 240** |
 
 In the "under load" row the old code also kept every write, because that workload
 stops voting 5 s before clients leave. The row above it isolates the case it got wrong.
@@ -96,6 +99,18 @@ shows every assumption and calculation.
   Pub/Sub instead.
 - **Frontend:** builds, but the latest Q&A/reconnect/ticket changes were verified
   through scripted clients, not in a browser.
+
+## Known limitations, and how I'd address them
+
+| Limitation | Consequence | Fix |
+|---|---|---|
+| HLS segments are served without authentication (`/hls/` in nginx) | Once real segments exist, anyone who knows a lecture id can watch the bulk tier, bypassing the enrollment check on `/stream/join` | Short-lived signed URLs or CDN signed cookies, issued by `/stream/join` |
+| Redis keys changed shape between versions (e.g. `qa:conn` from counter to hash) with no migration | A rolling upgrade with old and new core-api running side by side hits `WRONGTYPE` errors. All tests here used stop-and-replace deploys | Versioned key names (`qa:v2:conn:*`), or drain-then-upgrade |
+| Presence trusts a 15 s heartbeat | If a healthy instance can't reach Redis for > 15 s, the sweeper may flush and clear a lecture that still has clients. `seq` then restarts and those clients ignore updates until they reconnect | Bump an epoch when a buffer is cleared and have clients reset on a new epoch; or close sockets on a heartbeat failure |
+| A flush batch Postgres keeps rejecting is retried forever | One poison row (e.g. a deleted user's vote) blocks that lecture's flush and keeps its buffer in Redis | Dead-letter the failing rows after N attempts and alert |
+| Single Redis, Postgres and nginx | Any one of them failing stops Q&A or everything | Redis Sentinel/replica, Postgres replica with failover, two gateways behind an L4 load balancer |
+| Q&A egress ≈ 30 % of video at 10,000 viewers ([capacity](docs/capacity.md)) | Bandwidth cost | 1 update/s for HLS-tier viewers, or `permessage-deflate` |
+| No automated test suite or CI | The checks in `globalclass/backend/scripts/` are run by hand | A GitHub Actions job: `docker compose up`, then smoke, access, abuse and ranking checks |
 
 ## Run it
 

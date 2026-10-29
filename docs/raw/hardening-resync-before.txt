@@ -1,0 +1,2 @@
+rounds 40, observers 6, flapping 400 ms per round
+stale after the lecture went quiet: 194 of 240 observations (37 of 40 rounds)

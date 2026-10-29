@@ -1,0 +1,43 @@
+﻿tag=hardening-1000 clients=1000 steady=120s lecture=6d462596-1d16-4768-9ec2-ac75f5240d26
+window 2026-10-28T19:59:01.4050000+00:00 .. 2026-10-28T20:01:01.4050000+00:00
+
+mutations sent (steady)      : 12761  (106.3/s cluster-wide)
+msgs received per client/s   : 4.06
+updates received per client/s: 3.96
+bytes received per client/s  : 54303.26
+total bytes received/s       : 54303256
+ack timeouts / errors        : 0 / 0
+abnormal closes / connect err: 0 / 0
+update latency ms            : med 144  p95 258  p99 278  max 371
+ticket request ms            : med 2.731163  p95 9.880785099999988  p99 23.99345722  max 84.630688  errors 0
+websocket open ms            : med 1  p95 2  p99 7.029999999999973  max 41
+
+CPU % over the steady window (100 = one core):
+  globalclass-api-gateway-1        n= 59 mean=  26.0 peak=  34.5
+  globalclass-core-api-3           n= 59 mean=  11.3 peak=  15.1
+  globalclass-core-api-4           n= 59 mean=   8.5 peak=  12.7
+  globalclass-core-api-5           n= 59 mean=  11.4 peak=  15.2
+  globalclass-grafana-1            n= 59 mean=   0.2 peak=   1.6
+  globalclass-k6                   n= 59 mean= 105.4 peak= 266.2
+  globalclass-minio-1              n= 59 mean=   1.0 peak=   6.6
+  globalclass-postgres-1           n= 59 mean=   1.2 peak=   6.2
+  globalclass-prometheus-1         n= 59 mean=   0.2 peak=   1.4
+  globalclass-redis-1              n= 59 mean=   4.4 peak=   9.4
+  globalclass-streaming-engine-3   n= 59 mean=   0.4 peak=   1.2
+  globalclass-streaming-engine-4   n= 59 mean=   0.4 peak=   1.8
+  globalclass-streaming-engine-5   n= 59 mean=   0.4 peak=   1.0
+
+Sockets per core-api instance:
+  core-api-3: 335
+  core-api-4: 331
+  core-api-5: 334
+
+Redis (since RESETSTAT):
+  total_commands_processed:292201
+  total_net_output_bytes:41692182
+  cmdstat_hincrby:calls=16467,usec=74046,usec_per_call=4.50,rejected_calls=0,failed_calls=0
+  cmdstat_hsetnx:calls=14467,usec=59386,usec_per_call=4.10,rejected_calls=0,failed_calls=0
+  cmdstat_hgetall:calls=1221,usec=1135,usec_per_call=0.93,rejected_calls=0,failed_calls=0
+  cmdstat_publish:calls=605,usec=5034,usec_per_call=8.32,rejected_calls=0,failed_calls=0
+  cmdstat_incr:calls=30134,usec=121962,usec_per_call=4.05,rejected_calls=0,failed_calls=0
+  cmdstat_eval:calls=48040,usec=1701175,usec_per_call=35.41,rejected_calls=0,failed_calls=0

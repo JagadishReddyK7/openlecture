@@ -751,3 +751,107 @@ cd backend; node scripts/slot-check.js     # 1,000 enrolled students, all joinin
 | Burst duration (1,000 concurrent requests) | 1,123 ms |
 
 Raw: `raw/p7-slot-check.txt`.
+
+---
+
+## Hardening after review (2026-10-27)
+
+A critical review of the finished work found three gaps worth fixing:
+1. Question size was unbounded. The WebSocket accepted frames up to `ws`'s default of
+   100 MiB, so one oversized question would have been re-broadcast to every viewer.
+2. There was no rate limiting at all.
+3. Redis Pub/Sub is at-most-once: an instance whose subscriber was briefly down missed
+   broadcasts and never caught up.
+
+The other gaps from the review are listed in the README under "Known limitations".
+
+### Input and rate limits
+
+```powershell
+cd backend; node scripts/abuse-check.js
+```
+
+| Check | Result |
+|---|---|
+| 1,001-character question; blank; non-string | refused (WebSocket `ERROR`, REST 400) |
+| Exactly 1,000 characters | accepted |
+| Malformed question id | refused |
+| 20 KB REST body | 413 (`express.json` limit 16 kb) |
+| 20 KB WebSocket frame | socket closed with 1009 (`maxPayload` 16 KiB) |
+| … and all 3 core-api instances still running afterwards | 3 → 3 |
+| 12 questions in a burst from one student | 9 accepted (+1 earlier = 10 per minute), 3 refused |
+| Another student at the same time | not affected (limits are per account) |
+| 11 wrong passwords, then the right one | 429 (locked out for the window) |
+| Another account's login meanwhile | 200 |
+
+12/12 pass. Limits are per account and live in Redis, so they hold across instances.
+Votes are 30 per 10 s and tickets 30 per minute. The existing smoke, access and ranking
+checks still pass.
+
+**A bug the first version of this check missed.** Adding `maxPayload` made an oversized
+frame raise an `error` event on that socket. The connection handler had no `error`
+listener, so Node treated it as unhandled and **the whole core-api process exited**.
+One 20 KB message from any student took down an instance and every socket on it. The
+first version of `abuse-check.js` only checked that the client saw close code 1009,
+so it passed. The bug surfaced when the next load test ran on two instances instead of
+three, and that run was discarded. The handler now attaches an `error` listener, and
+the check also counts running instances before and after:
+
+| Oversized frame | core-api instances running, before → after |
+|---|---:|
+| Without the `error` listener | 3 → **2** (process exited, `RangeError: Max payload size exceeded`) |
+| With it | 3 → 3 |
+
+### Resync after a Redis subscriber reconnect
+
+```powershell
+cd backend; node scripts/resync-check.js     # ROUNDS=40 FLAP_MS=400
+```
+
+Each round:
+- kill every Redis Pub/Sub connection in a tight loop for 400 ms (a flapping link);
+- have the instructor make one change halfway through;
+- let the lecture go quiet, then check whether 6 observing students (spread over the
+  3 instances) hold that change.
+
+| | Stale observations after the lecture went quiet |
+|---|---:|
+| Before (`11d3b01`) | **194 of 240** (37 of 40 rounds) |
+| After (resync on reconnect) | **0 of 240** |
+
+A single `CLIENT KILL` didn't reproduce the problem: 0 of 240 on both versions.
+node-redis re-subscribes within a few milliseconds, before the change reaches its publish.
+The flapping version is the one that separates them. The first attempt at the "before" run
+was lost when Docker Desktop stopped, and its empty output was discarded. The "before" run
+was on battery power, which doesn't affect a staleness count. The first "after" run most
+likely had only 2 of 3 core-api instances, because the abuse check that ran just before
+it hit the crash described above. The "after" row is the re-run on AC power, with the
+fix in place and all 3 instances confirmed running.
+
+Raw: `raw/hardening-resync-before.txt`, `raw/hardening-resync-after.txt`.
+
+### Cost of the hardening at 1000 clients
+
+```powershell
+.\scripts\run-qa-load.ps1 -Clients 1000 -Tag hardening-1000
+```
+
+Same workload and setup as P6-1000 (observability profile on, AC power). All 3 core-api
+instances ran the whole time (same start time before and after, 335 / 331 / 334 sockets).
+The workload stays under every new limit, so any refusal would show up as an error.
+
+| 1000 clients | P6-1000 | Hardened |
+|---|---:|---:|
+| Update latency | med 144 · p95 259 · p99 278 ms | med 144 · p95 258 · p99 278 ms |
+| Messages / bytes per client | 4.07 /s · 54.4 KB/s | 4.06 /s · 54.3 KB/s |
+| ACK timeouts / errors / abnormal closes | 0 / 0 / 0 | 0 / 0 / 0 |
+| Ticket request p95 | 11.3 ms | 9.9 ms |
+| core-api CPU (each, mean) | 10.0 / 12.0 / 12.2 % | 8.5 / 11.3 / 11.4 % |
+| Redis CPU (mean) | 4.0 % | 4.4 % |
+| Redis Lua calls (whole run) | 31,865 | 48,040 |
+
+The rate limiter adds one Lua call per mutation and ticket: +51 % Lua calls, +0.4 points
+of Redis CPU. Nothing else changed measurably. Latency and core-api CPU are within the
+run-to-run noise seen between earlier runs.
+
+Raw: `raw/hardening-1000-*`.
