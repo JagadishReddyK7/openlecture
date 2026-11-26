@@ -9,7 +9,9 @@ deliverables are in [`docs/course/`](docs/course/)). It was then taken further
 as an engineering exercise: load-test it, find what breaks, fix it, and measure
 the fix. Every number below was measured on the code in this repo, and
 [`docs/results.md`](docs/results.md) has the exact command, setup and raw output
-for each.
+for each. [`docs/engineering-notes.md`](docs/engineering-notes.md) tells the
+story behind them: what was wrong, how each fix works and why it was chosen,
+mistakes made along the way, and what's next.
 
 ## Architecture
 
@@ -139,6 +141,7 @@ the full list of test scripts.
 
 ```
 globalclass/   the implementation (services, nginx, compose, load tests, scripts)
-docs/          results.md (measurements), capacity.md (sizing), raw/ (raw run output)
+docs/          engineering-notes.md (what changed, how it works, why, what's next)
+               results.md (measurements), capacity.md (sizing), raw/ (raw run output)
 docs/course/   the original course deliverables: report, proposal, ADRs, diagrams
 ```
